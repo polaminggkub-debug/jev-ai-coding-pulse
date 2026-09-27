@@ -51,7 +51,12 @@ def _article(raw, http_get, now):
     if not in_window(created, now) or int(raw.get('positive_reactions_count') or 0) < 5:
         return None
     article_id = raw.get('id')
-    comments = _comments(article_id, http_get, now) if article_id else []
+    try:
+        comments = _comments(article_id, http_get, now) if article_id else []
+    except Exception as error:
+        print(f"Dev.to comments for {article_id} unavailable: {type(error).__name__} "
+              f"(status={getattr(error, 'code', 'unknown')})", file=sys.stderr)
+        comments = []
     url = raw.get('url') or raw.get('canonical_url') or ''
     return attach_context({'id': source_id('devto', article_id or url),
         'title': raw.get('title') or '', 'selftext': plain_text(raw.get('description')),
@@ -62,7 +67,7 @@ def _article(raw, http_get, now):
 def _articles(tag, http_get, now):
     seen = set()
     for page in range(1, 11):
-        rows = call_json(http_get, api_url(BASE, tag=tag, per_page=100, page=page))
+        rows = call_json(http_get, api_url(BASE, tag=tag, top=5, per_page=100, page=page))
         if not isinstance(rows, list):
             return
         fresh = [row for row in rows if row.get('id') not in seen]
@@ -88,7 +93,8 @@ def fetch_devto(*, now=None, http_get=None):
                 if article:
                     articles[article['id']] = article
         except Exception as error:
-            print(f"Dev.to tag {tag} skipped: {type(error).__name__}", file=sys.stderr)
+            print(f"Dev.to tag {tag} skipped: {type(error).__name__} "
+                  f"(status={getattr(error, 'code', 'unknown')})", file=sys.stderr)
     return [source_listing('devto', 'Dev.to', list(articles.values()))]
 
 
