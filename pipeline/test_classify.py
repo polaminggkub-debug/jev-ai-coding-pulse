@@ -106,7 +106,7 @@ class DurableClassifyTests(unittest.TestCase):
 
         self.assertEqual(len(self.decide.calls), 1)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["id"], "comment1")
+        self.assertEqual(rows[0]["id"], "reddit:comment1")
         self.assertEqual(rows[0]["label"], "praise")
 
     def test_rerun_refreshes_scores_and_keeps_the_existing_answer(self):
@@ -201,21 +201,21 @@ class DurableClassifyTests(unittest.TestCase):
         self.assertEqual(added, 5)
         self.assertEqual(len(rows), 5)
         self.assertEqual(signatures, {
-            ("comment-a", "Claude Opus", "sentiment-v1", "complaint"),
-            ("cache-only", "Qwen", "sentiment-v1", "mixed"),
-            ("comment-a", "Claude Opus", "sentiment-v1", "praise"),
-            ("comment-b", "Claude Opus", "sentiment-v1", "no_opinion"),
-            ("fallback-only", "Codex", "sentiment-v1", "praise"),
+            ("reddit:comment-a", "Claude Opus", "sentiment-v1", "complaint"),
+            ("reddit:cache-only", "Qwen", "sentiment-v1", "mixed"),
+            ("reddit:comment-a", "Claude Opus", "sentiment-v1", "praise"),
+            ("reddit:comment-b", "Claude Opus", "sentiment-v1", "no_opinion"),
+            ("reddit:fallback-only", "Codex", "sentiment-v1", "praise"),
         })
         imported_items = list(store.read_rows(self.root / "items"))
-        cache_item = next(row for row in imported_items if row["id"] == "cache-only")
+        cache_item = next(row for row in imported_items if row["id"] == "reddit:cache-only")
         self.assertEqual(cache_item["subject"], "Qwen")
         self.assertEqual(cache_item["text"], "")
         self.assertEqual(cache_item["zone"], "open")
-        enriched = next(row for row in imported_items if row["id"] == "comment-a")
+        enriched = next(row for row in imported_items if row["id"] == "reddit:comment-a")
         self.assertIn("Opus 5.5", enriched["text"])
         self.assertEqual(enriched["score"], 4)
-        fallback = next(row for row in rows if row["id"] == "fallback-only")
+        fallback = next(row for row in rows if row["id"] == "reddit:fallback-only")
         self.assertEqual(store.date(fallback["created_utc"]), "2025-12-30")
         self.assertTrue(all(not (self.root / name).exists() for name in
                             ("classify_cache.json", "labeled.json", "raw.json")))

@@ -76,7 +76,7 @@ C.chartTicks = function(max, left, width, top, bottom, height) {
 };
 C.renderChart = function(models) {
   const target = C.$('chart');
-  const rankable = models.filter(model => model.stats.opinions >= 20 && C.matches(model));
+  const rankable = models.filter(model => C.rankable(model) && C.matches(model));
   const styles = globalThis.getComputedStyle?.(target);
   const padding = styles ? parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight) : 0;
   const width = Math.max(1, Math.round((target.clientWidth || 760) - padding));
@@ -89,7 +89,8 @@ C.renderChart = function(models) {
   const positions = rankable.map(model => {
     const ratio = max === 20 ? 0.5 : Math.log(model.stats.opinions / 20) / Math.log(max / 20);
     const x = left + ratio * plotWidth;
-    const y = top + (100 - model.stats.net) / 200 * (bottom - top);
+    const bound = C.scoreMode === 'fair' ? 200 : 100;
+    const y = top + (bound - model.stats.net) / (2 * bound) * (bottom - top);
     return {model, x, y};
   });
   const labels = C.placeLabels(positions, width, top, bottom);
@@ -101,10 +102,10 @@ C.renderChart = function(models) {
     <rect x="${left}" y="${top}" width="${plotWidth}" height="${midY - top}" class="score-positive-zone"/><rect x="${left}" y="${midY}" width="${plotWidth}" height="${bottom - midY}" class="score-negative-zone"/>
     <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" class="axis"/><line x1="${left}" y1="${bottom}" x2="${rightEdge}" y2="${bottom}" class="axis"/>
     <line x1="${left}" y1="${midY}" x2="${rightEdge}" y2="${midY}" class="zero-line"/><line x1="${midX}" y1="${top}" x2="${midX}" y2="${bottom}" class="gridline"/>
-    <text x="${left + 6}" y="${top + 18 * scale}" class="score-half-label score-half-positive">👍 more liked</text><text x="${left + 6}" y="${bottom - 8 * scale}" class="score-half-label score-half-negative">👎 more disliked</text>
-    <text x="${left - 6}" y="${top + 4}" text-anchor="end" class="tick">+100</text><text x="${left - 6}" y="${midY + 4}" text-anchor="end" class="tick">0</text><text x="${left - 6}" y="${bottom + 4}" text-anchor="end" class="tick">−100</text>
+    <text x="${left + 6}" y="${top + 18 * scale}" class="score-half-label score-half-positive">${C.scoreMode === 'fair' ? 'Above community average' : '👍 more liked'}</text><text x="${left + 6}" y="${bottom - 8 * scale}" class="score-half-label score-half-negative">${C.scoreMode === 'fair' ? 'Below community average' : '👎 more disliked'}</text>
+    <text x="${left - 6}" y="${top + 4}" text-anchor="end" class="tick">+${C.scoreMode === 'fair' ? 200 : 100}</text><text x="${left - 6}" y="${midY + 4}" text-anchor="end" class="tick">0</text><text x="${left - 6}" y="${bottom + 4}" text-anchor="end" class="tick">−${C.scoreMode === 'fair' ? 200 : 100}</text>
     ${C.chartTicks(max, left, plotWidth, top, bottom, height)}<text x="${width / 2}" y="${418 * scale}" text-anchor="middle" class="axis-label">Opinions (log scale)</text>
-    <text x="14" y="${height / 2}" text-anchor="middle" class="axis-label" transform="rotate(-90 14 ${height / 2})">Score (liked − disliked)</text>${points}</svg>`;
+    <text x="14" y="${height / 2}" text-anchor="middle" class="axis-label" transform="rotate(-90 14 ${height / 2})">${C.scoreMode === 'fair' ? 'Fair score (vs community average)' : 'Score (liked − disliked)'}</text>${points}</svg>`;
   const hint = rankable.length ? 'Hover, focus, or tap a point to inspect it.' : 'No rankable models in this period.';
   target.innerHTML = `<p id="chart-tip" class="chart-tip" role="status">${hint}</p>${svg}${C.chartLegend()}`;
   C.bindChartPoints(target);
@@ -119,6 +120,8 @@ C.bindChartPoints = function(target) {
 C.render = function() {
   C.renderTime();
   C.renderTrends();
+  if (C.renderSourceOverview) C.renderSourceOverview(C.rowsForRange());
+  if (C.renderCommunityHeatmap) C.renderCommunityHeatmap(C.rowsForRange());
   C.chartModels = C.renderRanking();
   C.renderChart(C.chartModels);
 };
@@ -131,6 +134,7 @@ C.bindResize = function() {
 };
 C.init = function() {
   C.bindTime(); C.bindSelection(); C.bindResize();
+  if (C.bindSourceControls) C.bindSourceControls();
   C.$('theme').addEventListener('click', () => {
     const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' :
       matchMedia('(prefers-color-scheme: dark)').matches;

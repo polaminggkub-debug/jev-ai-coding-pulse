@@ -1,7 +1,7 @@
 # Jev Reddit Pulse
 
 Open `pulse.html` directly in a browser. It embeds its data, styles, and vanilla
-JavaScript and makes no external requests. Source links open Reddit when clicked.
+JavaScript and makes no external requests. Source links open the original community when clicked.
 The covered UTC period and Thai update time appear under the title. The next update
 is calculated from the workflow cron; new-opinion counts come from the latest
 classification run (older datasets without run stats show “unknown”). Today / 7 days /
@@ -60,7 +60,11 @@ modification time when no judgment date exists. Old timestamps are approximate.
 whenever changing the question text.** Only missing `(id, subject, q)` triples
 call Jev. New question versions retain old answers; daily counts and the page use
 the most recently judged answer per item/family, avoiding duplicate counts.
-Post IDs carry a `post:` prefix. Successful answers are flushed and synced before
+IDs carry a source prefix; Reddit posts retain their additional `post:` prefix.
+Legacy judgment files remain append-only and their IDs are normalized when read,
+so adding source tracking does not repeat old decisions. Item metadata carries
+`source` and `community`, including explicit Reddit defaults for old rows.
+Successful answers are flushed and synced before
 proceeding. A local file lock serializes classifier runs. Failures remain retryable
 on the next run. Each run makes at most 12,000 new decision requests, including
 failed requests, and logs when this cap is reached; there are no hidden API retries.
@@ -92,6 +96,7 @@ Use-today cards still default to seven days.
 
 ```sh
 python3 pipeline/fetch.py
+GITHUB_TOKEN=... python3 pipeline/fetch_sources.py
 OPENROUTER_API_KEY=... python3 pipeline/classify.py
 python3 pipeline/build.py
 ```
@@ -110,18 +115,7 @@ source. The workflow fetches, classifies, builds, commits changed data/page file
 and deploys `pulse.html` as the Pages site's `index.html`. Workflow concurrency
 serializes scheduled/manual runs so they cannot overlap judgments or commits.
 
-## Timeline
-
-Below Use today, Timeline defaults to the latest 30 calendar days in the data.
-Select a month with data to see the whole calendar month and its best family per
-zone, most disliked family, first-week versus last-week movers, and busiest threads.
-The race and line chart use seven-day rolling scores; the race takes the 12
-families with most opinions in the selected range. Play/pause, date scrubbing,
-and 1×/2× playback work entirely offline. Reduced-motion preferences disable
-transitions. Click a line legend item to isolate that family. Windows with fewer
-than five opinions are marked as low data; mover captions require 15 opinions
-in both compared windows and at least a 15-point change over three days. Month
-movers compare the first and last seven calendar days of that month.
+## Dates and quality filtering
 
 Item timestamps determine all daily grouping and chart ranges. Missing comment
 timestamps fall back to their parent post, then the recorded judgment time.
@@ -129,3 +123,42 @@ Quality filtering runs before Jev: threads older than three days need score 10;
 threads up to three days old need five comments. Settled comments with score zero or below,
 deleted/removed text, and AutoModerator comments are skipped. Thresholds are
 named constants and tested with offline fixtures.
+
+## Sources and community bias
+
+The collection job also reads Hacker News, GitHub issues and comments, Bluesky,
+Dev.to, and Lobsters through free endpoints. GitHub repositories are configured
+in `config/github_repos.txt`; the scheduled workflow supplies its GitHub token.
+Bluesky is skipped with a reason if its public search is unavailable or requires
+authentication. A failed source does not discard successful sources. Collection
+snapshots are inputs to the same quality, classification, and durable store path
+as Reddit. Offline tests inject HTTP responses; they never call these services.
+
+The source filter applies to the selected time range. “Where the data comes from”
+shows opinion counts, including the busiest Reddit communities. Community tastes
+requires 30 opinions per community and 20 per family. Each cell shows its raw
+score and its difference from the community's average. Fair score averages these
+differences across communities, weighted by opinion count, using cells with at
+least 10 opinions. It measures relative reception inside communities; it does
+not establish model quality or remove all sampling bias.
+
+Reddit keeps its original `sentiment-v1` question and cache. Other sources use a
+generic post/comment question under `sentiment-source-v1`. Each question must be
+versioned when its wording changes. GitHub repository context supplies the
+repository's own tool as an implicit mention, including replies that do not
+repeat the tool's name. Recent replies can retain an older parent for context
+without judging the old parent again as a new post.
+
+## Worth reading today
+
+The header links to `reads.html`, a separate daily and seven-day top-ten list.
+Candidates need at least five judged opinions. Engagement (comments + score)
+is normalized within each community's trailing 30 days, then multiplied by the
+share of praise and complaint. A cached, versioned Jev yes/no decision must
+have probability at least 0.6 before a thread appears. The curator persists
+attempts before calls and limits itself to 60 calls per UTC day.
+
+Run `python3 pipeline/curator.py` after classification to curate new threads;
+`python3 pipeline/build.py` builds both pages offline from saved records. The
+Pages workflow stages `pulse.html` as `index.html` and also stages `reads.html`.
+Version details retain raw sentiment scores when family ranking uses Fair scores.

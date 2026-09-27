@@ -1,0 +1,42 @@
+.reads-page main { width: 100%; }
+.reads-header { margin-bottom: 18px; }
+.reads-header h1 { font-size: clamp(24px, 5vw, 34px); }
+.reads-header nav, .reads-controls, .reads-day-controls, .reads-view-controls {
+  display: flex; min-width: 0; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.reads-header nav { justify-content: flex-end; }
+.reads-header nav a { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; text-decoration: none; }
+.reads-controls { justify-content: space-between; margin-bottom: 8px; }
+.reads-day-controls label { color: var(--mut); font-size: 12px; }
+#read-day { min-width: 130px; }
+.reads-view-controls button[aria-pressed=true] { border-color: var(--pos); color: var(--pos); }
+#reads-status { min-height: 1.5em; margin: 6px 0 12px; }
+.reads-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.read-card { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.read-card-title { margin: 0; font-size: 17px; line-height: 1.35; }
+.read-card-title a { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.read-meta, .read-models, .read-comment { display: flex; min-width: 0; align-items: center; gap: 7px; flex-wrap: wrap; margin: 0; }
+.read-meta, .read-date, .read-comment { color: var(--mut); font-size: 12px; }
+.read-community { font-weight: 600; }
+.read-stats { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.read-label { width: max-content; max-width: 100%; padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: 999px; font-size: 12px; font-weight: 600; }
+.read-label.debate { border-color: var(--zone-tool); color: var(--zone-tool); }
+.read-label.love { border-color: var(--pos); color: var(--pos); }
+.read-label.angry { border-color: var(--neg); color: var(--neg); }
+.read-model { display: inline-flex; min-width: 0; align-items: center; gap: 5px; font-size: 12px; }
+.read-model .logo { width: 20px; height: 20px; flex-basis: 20px; }
+.read-comment { display: -webkit-box; padding-top: 7px; overflow: hidden; border-top: 1px solid var(--line);
+  line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+.read-comment strong { color: var(--fg); }
+.read-empty { grid-column: 1 / -1; margin: 0; padding: 18px; border: 1px dashed var(--line); border-radius: 12px;
+  color: var(--mut); text-align: center; }
+@media (max-width: 640px) {
+  .reads-header nav { justify-content: flex-start; }
+  .reads-controls { align-items: flex-start; flex-direction: column; }
+  .reads-day-controls { width: 100%; }
+  #read-day { flex: 1 1 auto; }
+  .reads-cards { grid-template-columns: 1fr; }
+  .read-card { padding: 12px; }
+}

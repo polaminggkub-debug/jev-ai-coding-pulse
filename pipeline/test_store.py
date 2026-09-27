@@ -58,8 +58,24 @@ class StoreTests(unittest.TestCase):
         paths = sorted((self.root / "judgments").glob("*.jsonl"))
         self.assertEqual([path.name for path in paths], ["2026-01.jsonl", "2026-02.jsonl"])
         index = store.judgment_index(self.root)
-        self.assertEqual(index[("c1", "Claude Opus", "sentiment-v1")]["label"], "praise")
-        self.assertEqual(index[("c2", "Qwen", "sentiment-v1")]["label"], "complaint")
+        self.assertEqual(index[("reddit:c1", "Claude Opus", "sentiment-v1")]["label"], "praise")
+        self.assertEqual(index[("reddit:c2", "Qwen", "sentiment-v1")]["label"], "complaint")
+
+    def test_duplicate_pair_question_uses_last_line_without_double_counting(self):
+        row = item('dup', 'Codex', None, stamp('2026-09-01T00:00:00'))
+        store.append_item(self.root, row)
+        first = judgment(row, 'praise', judged_at=row['created_utc'] + 120)
+        last = judgment(row, 'complaint', judged_at=row['created_utc'] + 60)
+        for saved in (first, first, last):
+            store.append_judgment(self.root, saved)
+        indexed = store.judgment_index(self.root)
+        self.assertEqual(len(indexed), 1)
+        self.assertEqual(next(iter(indexed.values()))['label'], 'complaint')
+        [loaded] = store.load_mentions(self.root)
+        self.assertEqual(loaded['label'], 'complaint')
+        days = store.rebuild_daily(self.root)
+        self.assertEqual(days['2026-09-01']['families']['Codex']['opinion'], 1)
+        self.assertEqual(days['2026-09-01']['families']['Codex']['complaint'], 1)
 
     def test_items_keep_required_metadata_short_text_and_refresh_scores(self):
         created = stamp("2026-03-04T05:06:00")
@@ -104,14 +120,18 @@ class StoreTests(unittest.TestCase):
             "praise": 1, "complaint": 1, "mixed": 0, "no_opinion": 0, "opinion": 2,
         })
         self.assertEqual(saved["opinions"], [
-            {"id": "c1", "subject": "Claude Opus", "version": "Opus 5.5", "label": "praise",
-             "q": "sentiment-v1", "probs": {"praise": 0.9}, "created_utc": created},
-            {"id": "c2", "subject": "Claude Opus", "version": "Opus 5.5", "label": "complaint",
-             "q": "sentiment-v1", "probs": {"complaint": 0.9}, "created_utc": created},
-            {"id": "c3", "subject": "Claude Opus", "version": "Opus 5.7", "label": "no_opinion",
-             "q": "sentiment-v1", "probs": {"no_opinion": 0.9}, "created_utc": created},
-            {"id": "c4", "subject": "Qwen", "version": "Qwen 3.8", "label": "mixed",
-             "q": "sentiment-v1", "probs": {"mixed": 0.9}, "created_utc": created},
+            {"id": "reddit:c1", "subject": "Claude Opus", "version": "Opus 5.5", "label": "praise",
+             "q": "sentiment-v1", "probs": {"praise": 0.9}, "source": "reddit",
+             "community": "Example", "created_utc": created},
+            {"id": "reddit:c2", "subject": "Claude Opus", "version": "Opus 5.5", "label": "complaint",
+             "q": "sentiment-v1", "probs": {"complaint": 0.9}, "source": "reddit",
+             "community": "Example", "created_utc": created},
+            {"id": "reddit:c3", "subject": "Claude Opus", "version": "Opus 5.7", "label": "no_opinion",
+             "q": "sentiment-v1", "probs": {"no_opinion": 0.9}, "source": "reddit",
+             "community": "Example", "created_utc": created},
+            {"id": "reddit:c4", "subject": "Qwen", "version": "Qwen 3.8", "label": "mixed",
+             "q": "sentiment-v1", "probs": {"mixed": 0.9}, "source": "reddit",
+             "community": "Example", "created_utc": created},
         ])
         self.assertEqual(saved["versions"]["Claude Opus"]["Opus 5.7"]["opinion"], 0)
         self.assertEqual(saved["families"]["Qwen"]["mixed"], 1)

@@ -46,6 +46,4 @@ jobs:
         with:
           node-version: "22"
       - name: Run unit and UI tests
-        run: |
-          python3 -m unittest discover -s pipeline
-          node pipeline/test_pulse_ui.js
+        run: scripts/check.sh

@@ -6,6 +6,7 @@ R.modelsFor = function(rows) {
     return {subject, items, zone: R.zoneFor(subject, items), stats: R.stats(items)};
   });
 };
+R.rankable = model => model.stats.opinions >= 20 && (R.scoreMode !== 'fair' || model.fairNet !== null);
 R.compareModels = (a, b) => b.stats.net - a.stats.net ||
   b.stats.opinions - a.stats.opinions || a.subject.localeCompare(b.subject);
 R.shares = function(stats) {
@@ -40,9 +41,9 @@ R.opinionDisplay = function(stats) {
     R.el('span', `👎 ${R.percentText(shares.disliked)} disliked`, 'disliked-label'));
   return display;
 };
-R.scorePill = function(net) {
-  const score = R.el('span', `Score ${R.netText(net)}`, `score-pill ${net < 0 ? 'negative' : 'positive'}`);
-  score.setAttribute('title', 'Score = liked % − disliked %');
+R.scorePill = function(net, mode = R.scoreMode) {
+  const score = R.el('span', net === null ? 'Fair score unavailable' : `Score ${R.netText(net)}`, `score-pill ${net < 0 ? 'negative' : 'positive'}`);
+  score.setAttribute('title', mode === 'fair' ? 'Fair score = weighted difference from community baselines' : 'Score = liked % − disliked %');
   return score;
 };
 R.quote = function(items, label) {
@@ -53,6 +54,7 @@ R.quote = function(items, label) {
   const anchor = R.el('a', `“${best.text || ''}”`);
   if (/^https?:\/\//i.test(best.link || '')) anchor.href = best.link;
   anchor.target = '_blank'; anchor.rel = 'noopener noreferrer';
+  if (R.sourceBadge) quote.append(R.sourceBadge(best));
   quote.append(anchor, R.el('span', ` ▲${best.score || 0}`, 'muted'));
   return quote;
 };
@@ -69,7 +71,7 @@ R.versionDetail = function(subject, version) {
   const meta = R.el('span', `${version.name} · ${version.mentions} mentions`, 'version-name');
   const trend = R.trendArrow(subject, version.name);
   if (trend) meta.append(trend);
-  row.append(meta, R.opinionDisplay(stat), R.scorePill(stat.net),
+  row.append(meta, R.opinionDisplay(stat), R.scorePill(stat.net, 'raw'),
     R.el('span', `${stat.opinions} people's opinions`, 'opinion-count'));
   return row;
 };
@@ -82,7 +84,7 @@ R.threadList = function(items) {
   const list = R.el('ul', undefined, 'threads');
   [...threads.values()].sort((a, b) => (b.thread_score || 0) - (a.thread_score || 0)).slice(0, 5).forEach(row => {
     const item = R.el('li');
-    item.append(R.el('span', `▲${row.thread_score || 0} · r/${row.sub || ''} `, 'muted'));
+    item.append(R.el('span', `▲${row.thread_score || 0} · ${R.communityLabel ? R.communityLabel(row) : `r/${row.sub || ''}`} `, 'muted'));
     const anchor = R.el('a', row.thread || row.thread_url);
     if (/^https?:\/\//i.test(row.thread_url)) anchor.href = row.thread_url;
     anchor.target = '_blank'; anchor.rel = 'noopener noreferrer';
@@ -125,7 +127,7 @@ R.renderUseToday = function(models) {
   const target = R.$('use-today');
   target.replaceChildren(R.el('h2', 'Use today', 'strip-title'));
   Object.entries(R.zones).forEach(([zone, title]) => {
-    const ranked = models.filter(model => model.zone === zone && model.stats.opinions >= 20).sort(R.compareModels);
+    const ranked = models.filter(model => model.zone === zone && R.rankable(model)).sort(R.compareModels);
     const card = R.el('article', undefined, 'use-card');
     card.append(R.el('h2', title));
     if (!ranked.length) card.append(R.el('p', 'Not enough talk yet', 'empty-pick'));
@@ -140,7 +142,7 @@ R.renderUseToday = function(models) {
       const shares = R.shares(best.stats);
       const score = R.el('div', undefined, 'use-score-block');
       const detail = R.el('div', undefined, 'use-score-detail');
-      detail.append(R.el('span', 'Score (liked − disliked)', 'use-score-label'),
+      detail.append(R.el('span', R.scoreMode === 'fair' ? 'Fair score (vs community average)' : 'Score (liked − disliked)', 'use-score-label'),
         R.el('span', `👍 ${R.percentText(shares.liked)} · 👎 ${R.percentText(shares.disliked)}`, 'use-distribution'));
       score.append(R.el('strong', R.netText(best.stats.net), `use-net ${best.stats.net < 0 ? 'negative' : 'positive'}`), detail);
       card.append(score, R.el('p', `${best.stats.opinions} people's opinions`, 'use-opinions'), R.quote(best.items, 'praise'));
@@ -170,14 +172,14 @@ R.renderChips = function(models) {
 R.renderZones = function(models) {
   const target = R.$('zones');
   target.replaceChildren();
-  target.append(R.el('p', '👍 liked · mixed · 👎 disliked — share of opinions about each model for coding. Score = liked − disliked.', 'ranking-legend legend'));
+  target.append(R.el('p', '👍 liked · mixed · 👎 disliked — share of opinions about each model for coding. ' + (R.scoreMode === 'fair' ? 'Fair score = difference from community baselines.' : 'Score = liked − disliked.'), 'ranking-legend legend'));
   Object.entries(R.zones).forEach(([zone, title]) => {
     const section = R.el('section', undefined, 'zone-section');
     section.append(R.el('h2', title));
     const current = models.filter(model => model.zone === zone);
     const visible = current.filter(R.matches);
-    const ranked = visible.filter(model => model.stats.opinions >= 20).sort(R.compareModels);
-    const low = visible.filter(model => model.stats.opinions < 20).sort((a, b) => b.stats.mentions - a.stats.mentions);
+    const ranked = visible.filter(model => R.rankable(model)).sort(R.compareModels);
+    const low = visible.filter(model => !R.rankable(model)).sort((a, b) => b.stats.mentions - a.stats.mentions);
     if (ranked.length) ranked.forEach(model => section.append(R.rankRow(model, R.matchVersion(model))));
     if (low.length) {
       const group = R.el('details', undefined, 'low-data');
@@ -193,6 +195,7 @@ R.renderZones = function(models) {
 R.renderRanking = function() {
   const rows = R.rowsForRange();
   const models = R.modelsFor(rows);
+  if (R.applyFairScores) R.applyFairScores(models, rows);
   R.renderUseToday(models);
   R.renderChips(models);
   R.renderZones(models);

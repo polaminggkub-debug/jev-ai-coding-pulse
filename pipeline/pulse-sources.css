@@ -1,0 +1,19 @@
+.source-count-row { display: grid; grid-template-columns: minmax(110px, 1fr) 3fr 60px; align-items: center; gap: 12px; margin: 10px 0; }
+.source-count-name { font-size: 13px; overflow-wrap: anywhere; }
+.source-count-value { text-align: right; font-variant-numeric: tabular-nums; }
+.source-count-track { background: var(--line); height: 10px; border-radius: 8px; overflow: hidden; }
+.source-count-fill { display: block; height: 100%; background: var(--pos); border-radius: inherit; }
+.source-icon { margin-right: 5px; font-size: 13px; }
+.community-table-wrap { overflow-x: auto; max-width: 100%; }
+.community-table { border-collapse: separate; border-spacing: 3px; width: 100%; font-size: 12px; }
+.community-table th, .community-table td { padding: 9px; text-align: center; min-width: 85px; }
+.community-table .community-name { text-align: left; min-width: 150px; }
+.community-table .community-tastes { min-width: 190px; }
+.heat-cell { border-radius: 6px; }
+.heat-score, .heat-delta { display: block; white-space: nowrap; }
+.heat-score { font-size: 15px; }
+.heat-delta { margin-top: 3px; color: var(--mut); }
+@media (max-width: 600px) {
+  .source-count-row { grid-template-columns: minmax(90px, 1fr) 2fr 42px; gap: 8px; }
+  .community-table th, .community-table td { padding: 6px; }
+}

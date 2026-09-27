@@ -33,12 +33,22 @@ jobs:
       - name: Fetch recent Reddit threads
         run: python3 pipeline/fetch.py
 
+      - name: Fetch other free community sources
+        run: python3 pipeline/fetch_sources.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Classify unseen mentions
         run: python3 pipeline/classify.py
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-      - name: Build the Pulse page
+      - name: Curate worth-reading threads
+        run: python3 pipeline/curator.py
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Build the Pulse pages
         run: python3 pipeline/build.py
 
       - name: Commit updated data and page
@@ -48,7 +58,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data pulse.html
+          git add data pulse.html reads.html
           if ! git diff --cached --quiet; then
             git commit -m "Update scheduled Reddit Pulse data"
             git push origin "HEAD:${BRANCH_NAME}"
@@ -61,6 +71,7 @@ jobs:
         run: |
           mkdir -p site
           cp pulse.html site/index.html
+          cp reads.html site/reads.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
