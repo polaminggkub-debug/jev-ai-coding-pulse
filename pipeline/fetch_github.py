@@ -2,10 +2,13 @@
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 
 try:
+    from .github_api import BudgetExhausted, GitHubAPI
     from .source_utils import api_url, epoch, get_json, in_window, iso_utc, now_epoch, source_listing
 except ImportError:
+    from github_api import BudgetExhausted, GitHubAPI
     from source_utils import api_url, epoch, get_json, in_window, iso_utc, now_epoch, source_listing
 
 REPOS_PATH = Path(__file__).resolve().parents[1] / 'config' / 'github_repos.txt'
@@ -30,11 +33,14 @@ def _bot(row):
     return user.get('type') == 'Bot' or name.endswith('[bot]') or name == 'automoderator'
 
 
-def _pages(url, http_get, headers, **params):
+def _pages(url, api, **params):
     seen = set()
     page = 1
     while True:
-        rows = http_get(api_url(url, per_page=100, page=page, **params), headers=headers)
+        try:
+            rows = api.get(api_url(url, per_page=100, page=page, **params))
+        except BudgetExhausted:
+            break
         if not isinstance(rows, list):
             raise ValueError('GitHub listing was not a list')
         fresh = [row for row in rows if row.get('id') not in seen]
@@ -59,11 +65,7 @@ def _comment(row, repo):
                 source='github', community=repo, implicit_subjects=_subjects(repo))
 
 
-def _issue(row, repo, now, http_get, headers):
-    url = f"{BASE}/{repo}/issues/{row['number']}/comments"
-    comments = [_comment(comment, repo) for comment in _pages(
-        url, http_get, headers, since=iso_utc(now - 5 * 86400))
-        if not _bot(comment) and in_window(comment.get('created_at'), now)]
+def _issue(row, repo, now, comments):
     created = epoch(row.get('created_at'))
     recent = in_window(created, now)
     if not recent and not comments:
@@ -75,20 +77,43 @@ def _issue(row, repo, now, http_get, headers):
                 implicit_subjects=_subjects(repo), context_only=not recent)
 
 
-def _fetch_repo(repo, now, http_get, headers):
-    rows = _pages(f'{BASE}/{repo}/issues', http_get, headers, state='all',
+def _issue_number(comment):
+    path = urlsplit(str(comment.get('issue_url') or '')).path.rstrip('/')
+    try:
+        return int(path.rsplit('/', 1)[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _recent_comments(repo, now, api):
+    url = f'{BASE}/{repo}/issues/comments'
+    comments = {}
+    try:
+        rows = _pages(url, api, since=iso_utc(now - 5 * 86400))
+        for row in rows:
+            number = _issue_number(row)
+            if number is None or _bot(row) or not in_window(row.get('created_at'), now):
+                continue
+            comments.setdefault(number, []).append(_comment(row, repo))
+    except Exception as error:
+        print(f'GitHub comments partial in {repo}: {type(error).__name__}', file=sys.stderr)
+    return comments
+
+
+def _fetch_repo(repo, now, api):
+    rows = _pages(f'{BASE}/{repo}/issues', api, state='all',
                   sort='updated', direction='desc', since=iso_utc(now - 5 * 86400))
-    posts = []
-    for row in rows:
-        if _bot(row) or 'pull_request' in row:
-            continue
-        try:
-            post = _issue(row, repo, now, http_get, headers)
-            if post:
-                posts.append(post)
-        except Exception as error:
-            print(f"GitHub issue skipped in {repo}: {type(error).__name__}", file=sys.stderr)
+    issues = [row for row in rows if not _bot(row) and 'pull_request' not in row]
+    comments = _recent_comments(repo, now, api) if issues else {}
+    posts = [post for row in issues
+             if (post := _issue(row, repo, now, comments.get(row.get('number'), []))) is not None]
     return source_listing('github', repo, posts)
+
+
+def _budget_reason(api):
+    if api.stop_reason:
+        return api.stop_reason
+    return 'reserve reached' if api.remaining <= api.reserve else 'request cap reached'
 
 
 def fetch_github(*, now=None, http_get=None, token=None, repos=None, repos_path=REPOS_PATH):
@@ -100,12 +125,29 @@ def fetch_github(*, now=None, http_get=None, token=None, repos=None, repos_path=
     now = now_epoch(now)
     headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
                'X-GitHub-Api-Version': '2022-11-28'}
+    api = GitHubAPI(http_get, headers)
+    try:
+        api.start()
+    except BudgetExhausted:
+        print('Skipping GitHub: request quota is unavailable.', file=sys.stderr)
+        return []
+    repo_names = _repos(repos_path) if repos is None else list(dict.fromkeys(repos))
     output = []
-    for repo in _repos(repos_path) if repos is None else dict.fromkeys(repos):
+    attempted = 0
+    for repo in repo_names:
+        if api.stopped or api.calls >= api.max_calls or api.remaining <= api.reserve:
+            break
+        attempted += 1
         try:
-            output.append(_fetch_repo(repo, now, http_get, headers))
+            output.append(_fetch_repo(repo, now, api))
         except Exception as error:
             print(f'GitHub repository skipped {repo}: {type(error).__name__}', file=sys.stderr)
+    print(f'GitHub collection: repositories={attempted}/{len(repo_names)} api_calls={api.calls}',
+          file=sys.stderr)
+    if api.stopped or api.calls >= api.max_calls or api.remaining <= api.reserve:
+        omitted = len(repo_names) - attempted
+        print(f'GitHub collection partial: {_budget_reason(api)}; omitted_repositories={omitted}',
+              file=sys.stderr)
     return output
 
 

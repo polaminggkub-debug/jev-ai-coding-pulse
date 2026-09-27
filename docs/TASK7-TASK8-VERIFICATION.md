@@ -57,3 +57,27 @@ card rendering, cached decisions, rejection below 0.6, daily attempt limits,
 community percentiles, and neutral-opinion heat denominators.
 A green test suite alone does not establish live source coverage; release and
 live collection evidence is recorded separately in the coordinating report.
+
+## First live collection and recovery
+
+Run `36348702393` committed its collected data and 42 curated picks, then Pages
+deployment failed because GitHub issue-by-issue comment requests exhausted the
+installation API allowance. Saved input contained HN, GitHub, and Dev.to data;
+Bluesky returned 403 (the task explicitly permits a clean skip), and Lobsters
+exposed a parser mismatch. Those operational findings are separate from the
+offline test result.
+
+Additional source contracts checked during recovery:
+- [Algolia item response](https://hn.algolia.com/api/v1/items/1) supplies nested
+  comments rather than a `num_comments` field. The HN regression exercises a
+  parent found solely through a comment search and counts nested replies.
+- [Forem article query](https://developers.forem.com/api/v1#tag/articles): tag
+  results use popularity order, so `top=5` constrains them to the requested
+  publication window. An unavailable comment endpoint no longer drops an
+  otherwise eligible article or causes repeated requests across tags.
+
+Recovery regressions reproduce the GitHub quota exhaustion before the fix,
+then verify bulk repository comment grouping, an 800-attempt ceiling, a
+100-request deployment reserve, and retained partial pages. Lobsters fixtures
+reproduce the string-valued `commenting_user` response from both public tag
+feeds; string and mapping author formats are accepted.

@@ -58,6 +58,11 @@ def _comment_rows(item, now, parent_created, output):
         _comment_rows(child, now, parent_created, output)
 
 
+def _comment_count(item):
+    return sum((child.get("type") == "comment") + _comment_count(child)
+               for child in item.get("children", []) or [])
+
+
 def _story(hit, detail, now, matched_comments):
     detail = detail or {}
     story_id = str(detail.get("id") or hit.get("objectID") or hit.get("id") or "")
@@ -72,7 +77,8 @@ def _story(hit, detail, now, matched_comments):
     post = {"id": source_id("hn", story_id), "title": detail.get("title") or hit.get("title") or "",
             "selftext": detail.get("text") or hit.get("story_text") or "",
             "score": maybe_int(detail.get("points", hit.get("points"))),
-            "num_comments": safe_int(detail.get("num_comments", hit.get("num_comments"))),
+            "num_comments": safe_int(detail.get("num_comments", hit.get(
+                "num_comments", _comment_count(detail)))),
             "created_utc": epoch(created), "url": discussion, "comments": list(comment_rows.values())}
     external = detail.get("url") or hit.get("url")
     if external:

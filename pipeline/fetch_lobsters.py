@@ -20,9 +20,14 @@ def _comments(rows, now):
         created = raw.get('created_at')
         if not in_window(created, now):
             continue
+        author = raw.get('commenting_user')
+        if isinstance(author, dict):
+            author = author.get('username')
+        elif not isinstance(author, str):
+            author = None
         comment = {'id': source_id('lobsters', raw.get('short_id') or raw.get('id')),
                    'body': plain_text(raw.get('comment')), 'score': maybe_int(raw.get('score')),
-                   'created_utc': epoch(created), 'author': (raw.get('commenting_user') or {}).get('username'),
+                   'created_utc': epoch(created), 'author': author,
                    'url': raw.get('url')}
         if comment_qualifies(comment, now=now):
             output.append(attach_context(comment, 'lobsters', 'Lobsters'))
