@@ -4,16 +4,18 @@ import json
 from pathlib import Path
 
 try:
-    from . import store
+    from . import store, update_info
     from .versions import extract_version
 except ImportError:
     import store
+    import update_info
     from versions import extract_version
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = Path(__file__).resolve().parent
 LOGOS = ROOT / 'assets' / 'logos'
-SCRIPTS = ('pulse.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js')
+SCRIPTS = ('pulse.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js',
+           'pulse-timeline-core.js', 'pulse-timeline.js')
 
 
 def _prepare_mentions(rows):
@@ -26,6 +28,10 @@ def _prepare_mentions(rows):
         if key in seen:
             continue
         seen.add(key)
+        if any(row.get(field) is not None for field in
+               ('created_utc', 'parent_created_utc', 'post_created_utc', 'judged_at')):
+            row['created_utc'] = store.resolved_created_utc(row, row)
+            row['date'] = store.date(row['created_utc'])
         if 'version' not in row:
             row['version'] = extract_version(row.get('subject'), row.get('text'), row.get('thread'))
         result.append(row)
@@ -57,15 +63,9 @@ def _daily_totals(opinions):
 
 def _read_history(root):
     """Join daily labels to items without reading judgments or refreshing data."""
-    items = {}
-    for row in store.read_rows(Path(root) / 'items'):
-        try:
-            day = store.date(row['created_utc'])
-        except (KeyError, TypeError, ValueError, OverflowError):
-            continue
-        items[(row.get('id'), row.get('subject'), day)] = row
+    items = {(row.get('id'), row.get('subject')): row
+             for row in store.read_rows(Path(root) / 'items')}
     rows = []
-    days = []
     for path in sorted((Path(root) / 'daily').glob('*.json')):
         day = path.stem
         try:
@@ -73,8 +73,6 @@ def _read_history(root):
             summary = json.loads(path.read_text(encoding='utf-8'))
         except (ValueError, OSError, json.JSONDecodeError):
             continue
-        if summary.get('families'):
-            days.append(day)
         opinions = summary.get('opinions')
         if summary.get('families') and opinions is None:
             raise ValueError(
@@ -88,29 +86,19 @@ def _read_history(root):
                 opinion_day = day
             if opinion_day != day:
                 raise ValueError(f'{path} contains an opinion with a mismatched UTC date')
-            item = items.get((opinion.get('id'), opinion.get('subject'), opinion_day))
+            item = items.get((opinion.get('id'), opinion.get('subject')))
             if item is None:
                 raise ValueError(f'{path} contains an opinion without a matching item')
             row = dict(item)
             row.update(opinion)
             row['version'] = opinion.get('version') or item.get('version')
-            row['date'] = day
+            row['created_utc'] = store.resolved_created_utc(item, dict(opinion, judged_at=opinion.get('judged_at') or day))
+            row['date'] = store.date(row['created_utc'])
             rows.append(row)
     prepared = _prepare_mentions(rows)
     if len(prepared) != len(rows):
         raise ValueError('Daily records contain duplicate item and family pairs')
-    return prepared, sorted(set(days))
-
-
-def _metadata(rows, days):
-    dates = days or sorted({row['date'] for row in rows if row.get('date')})
-    updated = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
-    return {
-        'days': dates,
-        'startDate': dates[0] if dates else None,
-        'endDate': dates[-1] if dates else None,
-        'updatedAt': updated.isoformat().replace('+00:00', 'Z'),
-    }
+    return prepared, sorted({row['date'] for row in prepared})
 
 
 def _json_payload(value):
@@ -142,9 +130,11 @@ def _page(rows, meta, output):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jev Reddit Pulse</title><style>{css}</style></head>
 <body><header><h1>Jev Reddit Pulse</h1><button id="theme" type="button">Toggle light/dark</button></header>
+<p id="update-info" class="m" role="status"></p>
 <p id="covered-period" class="m" role="status"></p>
 <section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
 <section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
+<section id="timeline" aria-label="Timeline"></section>
 <p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
 <section aria-label="Choose a time range"><h2>Time range</h2>
 <div id="time-range" role="group" aria-label="Time range">
@@ -177,7 +167,8 @@ def build(source=None, output=ROOT / 'pulse.html'):
         rows, days = _read_history(source)
     else:
         rows, days = load_mentions(source), []
-    _page(rows, _metadata(rows, days), output)
+    meta = update_info.metadata(rows, days, source, ROOT / '.github/workflows/pulse.yml')
+    _page(rows, meta, output)
     return len(rows)
 
 

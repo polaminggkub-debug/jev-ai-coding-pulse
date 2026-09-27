@@ -29,12 +29,29 @@ def migrate(root):
         return _migrate(root)
 
 
-def _legacy_records(legacy, key, metadata, fallback):
+def _legacy_records(legacy, key, metadata, fallback, raw_has_item=False):
     item = dict(metadata.get(key, {}))
     judged = legacy.get('judged_at') or item.get('judged_at') or fallback
-    created = legacy.get('created_utc') or item.get('created_utc') or judged
+    source_created = item.get('created_utc')
+    parent_created = item.get('parent_created_utc') or item.get('post_created_utc')
+    legacy_created = legacy.get('created_utc')
+    same_as_judged = (legacy_created is not None and judged is not None
+                      and store.timestamp(legacy_created) == store.timestamp(judged))
+    if source_created is not None:
+        item['created_utc_source'] = 'item'
+    elif parent_created is not None:
+        item['created_utc_source'] = 'parent'
+    elif legacy_created is not None and not same_as_judged and not raw_has_item:
+        source_created = legacy_created
+        item['created_utc'] = legacy_created
+        item['created_utc_source'] = 'item'
+    else:
+        item['created_utc'] = None
+        item['judged_at'] = store.timestamp(judged)
+        item['created_utc_source'] = 'judged'
+    created = source_created or parent_created or (legacy_created if not raw_has_item else None) or judged
     kind = item.get('kind') or ('post' if key[0].startswith('post:') else 'comment')
-    item.update(id=key[0], subject=key[1], kind=kind, created_utc=created)
+    item.update(id=key[0], subject=key[1], kind=kind)
     for field, default in [('text', ''), ('sub', ''), ('link', ''), ('thread', ''),
                            ('thread_url', ''), ('score', 0), ('thread_score', 0)]:
         item.setdefault(field, default)
@@ -56,10 +73,19 @@ def _migrate(root):
     cache, labels, raw = [json.loads(p.read_text(encoding='utf-8')) if p.exists()
                           else ({} if p.name == 'raw.json' else []) for p in paths]
     fallback = min(p.stat().st_mtime for p in paths if p.exists())
-    metadata = jobs_from_raw(raw)
+    metadata = jobs_from_raw(raw, apply_quality=False)
+    raw_keys = set(metadata)
     for row in labels:
         key = identity(row)
-        metadata[key] = {**metadata.get(key, {}), **row, 'id': key[0]}
+        current = metadata.get(key, {})
+        merged = {**current, **row, 'id': key[0]}
+        # Raw event and parent dates beat timestamps copied from an old
+        # judgment record, which may already contain a fallback date.
+        if 'created_utc' in current:
+            merged['created_utc'] = current.get('created_utc')
+        if current.get('parent_created_utc') is not None:
+            merged['parent_created_utc'] = current['parent_created_utc']
+        metadata[key] = merged
     existing = {signature(r) for r in store.read_rows(root / 'judgments')}
     additions = []
     items = []
@@ -70,7 +96,8 @@ def _migrate(root):
         key = identity(legacy)
         if not all(key):
             raise ValueError('Legacy judgment has no recoverable identity')
-        item, judgment = _legacy_records(legacy, key, metadata, fallback)
+        item, judgment = _legacy_records(
+            legacy, key, metadata, fallback, raw_has_item=key in raw_keys)
         items.append(item)
         sig = signature(judgment)
         if sig not in existing:

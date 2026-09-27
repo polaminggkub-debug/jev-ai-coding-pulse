@@ -26,6 +26,7 @@ def fixture(body="I like Opus 5.5", comment_score=4, thread_score=12,
         "title": "A coding tools thread",
         "selftext": "",
         "score": thread_score,
+        "num_comments": 5,
         "permalink": "/r/Example/comments/post1/thread/",
         "created_utc": created_utc,
         "comments": [{"id": comment_id, "body": body, "score": comment_score,
@@ -220,12 +221,14 @@ class DurableClassifyTests(unittest.TestCase):
                             ("classify_cache.json", "labeled.json", "raw.json")))
         self.assertEqual(migrate(self.root), 0)
 
-    def test_hard_cap_makes_only_8000_fake_calls_and_defers_the_rest(self):
+    def test_hard_cap_makes_only_12000_fake_calls_and_defers_the_rest(self):
         count = MAX_CALLS + 2
         post = {
-            "id": "post1", "title": "Coding tools", "selftext": "", "score": 1,
+            "id": "post1", "title": "Coding tools", "selftext": "",
+            "num_comments": count,
+            "score": 10,
             "permalink": "/r/Example/comments/post1/thread/", "created_utc": stamp("2026-02-01T12:00:00"),
-            "comments": [{"id": f"comment{i}", "body": "I like Opus 5.5", "score": i,
+            "comments": [{"id": f"comment{i}", "body": "I like Opus 5.5", "score": i + 1,
                           "created_utc": stamp("2026-02-01T12:00:00")} for i in range(count)],
         }
         self.write_raw({"Example": {"top": [post]}})
@@ -238,7 +241,7 @@ class DurableClassifyTests(unittest.TestCase):
 
         self.assertEqual(len(decide.calls), MAX_CALLS)
         self.assertEqual(len(rows), MAX_CALLS)
-        self.assertIn("Hard cap reached: 8000 new Jev calls", output.getvalue())
+        self.assertIn(f"Hard cap reached: {MAX_CALLS} new Jev calls", output.getvalue())
         self.assertEqual(len(list(store.read_rows(self.root / "data" / "judgments"))), MAX_CALLS)
 
 

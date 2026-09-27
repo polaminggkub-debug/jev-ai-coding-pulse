@@ -36,7 +36,7 @@ function assertBar(bar, counts, total) {
 function checkInitial() {
   assert.equal(ids['range-7']['aria-pressed'], 'true');
   assert.match(text(ids['covered-period']), /27 Sep 2026/);
-  assert.match(text(ids['covered-period']), /updated.*27 Sep.*12:00.*UTC/);
+  assert.match(text(ids['update-info']), /Updated 27 Sep 19:00 \(Thai time\)/);
   assert.match(text(ids['use-today']), /Claude Opus/);
   assert.match(text(ids['use-today']), /mostly Opus 5.5/);
   assert.match(text(ids['use-today']), /runner-up: Gemini Score \+0/);
@@ -257,3 +257,25 @@ assert.equal(empty.ids['date-next'].disabled, true);
 assert.equal(empty.ids['history-note'].hidden, true, 'No available data hides the history note');
 assert.ok(!/NaN|Infinity/.test(empty.ids.chart.innerHTML));
 console.log('Pulse UI offline interaction checks passed.');
+
+{
+  const {ids, context, run} = harness([], {updatedAt: '2026-09-28T00:04:00Z',
+    nextUpdateAt: '2026-09-28T06:00:00Z', startDate: '2026-08-29', runStats: {newOpinions: 1811}});
+  run(['pulse.js']);
+  context.Pulse.renderUpdate();
+  assert.equal(ids['update-info'].textContent,
+    'Updated 28 Sep 07:04 (Thai time) · next update ~13:00 · this run read 1,811 new opinions · history since 29 Aug');
+  context.Pulse.meta.runStats.newOpinions = 0;
+  context.Pulse.renderUpdate();
+  assert.match(ids['update-info'].textContent, /read 0 new opinions/);
+  assert.equal(context.Pulse.updatedLabel('2026-09-28T18:04:00Z'), '29 Sep 01:04');
+}
+
+{
+  const {context, run} = harness([], {});
+  run(['pulse.js']);
+  assert.equal(context.Pulse.dateOf({created_utc: '2026-09-08T12:00:00Z',
+    judged_at: '2026-09-28T12:00:00Z', date: '2026-09-28'}), '2026-09-08');
+  assert.equal(context.Pulse.dateOf({parent_created_utc: '2026-09-07T12:00:00Z',
+    judged_at: '2026-09-28T12:00:00Z'}), '2026-09-07');
+}

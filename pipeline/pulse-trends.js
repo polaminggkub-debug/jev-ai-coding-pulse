@@ -36,7 +36,8 @@ T.trendGroups = function(rows, endExclusive) {
   (Array.isArray(rows) ? rows : []).forEach(row => {
     if (!row || (row.kind && row.kind !== 'comment')) return;
     const subject = typeof row.subject === 'string' ? row.subject.trim() : '';
-    const stamp = T.trendTimestamp(row.created_utc);
+    const stamp = [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at]
+      .map(T.trendTimestamp).find(value => value !== null) ?? null;
     if (!subject || stamp === null || stamp < beforeStart || stamp >= endExclusive) return;
     const window = stamp >= nowStart ? 'now' : 'before';
     T.trendGroup(groups, subject, null)[window].push(row);

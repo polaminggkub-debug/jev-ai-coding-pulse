@@ -61,7 +61,7 @@ class FixedDate extends Date {
 function harness(rows, meta, logos = {}) {
   const names = ['pulse-data', 'pulse-meta', 'pulse-logos', 'expand', 'chips', 'selection', 'zones',
     'trend-alerts', 'use-today', 'chart', 'search', 'theme', 'range-status', 'history-note', 'range-today', 'range-7', 'range-30',
-    'covered-period', 'date-prev', 'date-next', 'date-end', 'back-latest'];
+    'update-info', 'covered-period', 'date-prev', 'date-next', 'date-end', 'back-latest'];
   const ids = Object.fromEntries(names.map(id => [id, new Element(id)]));
   ids['pulse-data'].textContent = JSON.stringify(rows);
   ids['pulse-meta'].textContent = JSON.stringify(meta);
