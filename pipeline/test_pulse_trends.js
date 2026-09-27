@@ -69,3 +69,11 @@ function checkVersionsAndPurity() {
 }
 checkDirection(); checkThresholds(); checkWindows(); checkVersionsAndPurity();
 console.log('Pulse trend window checks passed.');
+
+{
+  const rows = [...opinions(20, 'praise', before), ...opinions(15, 'complaint', null,
+    {parent_created_utc: now, judged_at: '2026-10-20T00:00:00Z'})];
+  assert.equal(trends(rows)[0].now.opinions, 15, 'Missing item dates fall back to the parent');
+  const old = opinions(50, 'complaint', '2026-09-07T00:00:00Z', {judged_at: now});
+  assert.equal(trends(old).length, 0, 'Judging an old item today cannot create a current trend');
+}

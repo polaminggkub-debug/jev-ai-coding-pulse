@@ -2,7 +2,9 @@
 
 Open `pulse.html` directly in a browser. It embeds its data, styles, and vanilla
 JavaScript and makes no external requests. Source links open Reddit when clicked.
-The covered UTC period and update time appear under the title. Today / 7 days /
+The covered UTC period and Thai update time appear under the title. The next update
+is calculated from the workflow cron; new-opinion counts come from the latest
+classification run (older datasets without run stats show “unknown”). Today / 7 days /
 30 days (default 7) set the range; the date controls move its end across days
 with data, and **Back to latest** returns to the newest day. Expand a family row
 to inspect versions, excerpts, and threads. Chips show the ten most-mentioned
@@ -34,7 +36,8 @@ python3 pipeline/build.py
 Migration combines `classify_cache.json`, `labeled.json`, and `raw.json`, verifies
 that judgments were saved, then deletes these three files. It is safe to rerun.
 Identical cache/label copies coalesce; differing answers are preserved. Missing
-comment dates fall back to the recorded judgment date, or the oldest legacy file
+comment dates fall back to the parent post date, then the recorded judgment date,
+or the oldest legacy file
 modification time when no judgment date exists. Old timestamps are approximate.
 
 ## Durable data
@@ -43,11 +46,15 @@ modification time when no judgment date exists. Old timestamps are approximate.
   UTC creation month. Each records `id`, `kind`, `subject`, `q`, `label`, `probs`,
   `created_utc`, and `judged_at`. All month files participate in deduplication.
 - `data/items/YYYY-MM.jsonl`: metadata and excerpts of at most 400 characters.
-  These rows supply the comment details and links shown on the page.
+  These rows supply the comment details and links shown on the page. Timestamp
+  provenance distinguishes item, parent, and judged-time fallbacks so later
+  source dates can repair older fallback dates.
 - `data/daily/YYYY-MM-DD.json`: family and family/version counts plus an
   `opinions` list with the item ID, family, version, label, and UTC creation
   time. The page builder joins these opinion records to their item rows.
 - `data/incoming.json`: latest fetch input, never the judgment source of truth.
+- `data/run-stats.json`: latest classification run counts and completion time,
+  embedded into the page during the offline build.
 
 `QUESTION_VERSION` lives beside `Q` in `pipeline/classify.py`. **Bump the version
 whenever changing the question text.** Only missing `(id, subject, q)` triples
@@ -55,7 +62,7 @@ call Jev. New question versions retain old answers; daily counts and the page us
 the most recently judged answer per item/family, avoiding duplicate counts.
 Post IDs carry a `post:` prefix. Successful answers are flushed and synced before
 proceeding. A local file lock serializes classifier runs. Failures remain retryable
-on the next run. Each run makes at most 8,000 new decision requests, including
+on the next run. Each run makes at most 12,000 new decision requests, including
 failed requests, and logs when this cap is reached; there are no hidden API retries.
 
 The builder reads only daily files and items; it checks that the stored family
@@ -90,15 +97,35 @@ python3 pipeline/build.py
 ```
 
 Collection uses Arctic Shift, with subreddits in `config/subreddits.txt` (one per
-line, `#` comments allowed). It selects the top eight posts by score from the
+line, `#` comments allowed). It selects the top 25 qualifying posts by score from the
 last five days per subreddit and fetches their comments, retaining timestamps.
 At most four requests run concurrently; failures retry with exponential backoff,
 and a failed subreddit does not abort other subreddits. Jev uses OpenRouter.
 Offline tests use fakes and never need a network connection or API key.
 
-`.github/workflows/pulse.yml` runs at 00:00 and 12:00 UTC and supports manual
+`.github/workflows/pulse.yml` runs at 00:00, 06:00, 12:00, and 18:00 UTC and supports manual
 execution. Add the repository secret `OPENROUTER_API_KEY`, enable Actions write
 permission for repository contents, and choose **GitHub Actions** as the Pages
 source. The workflow fetches, classifies, builds, commits changed data/page files,
 and deploys `pulse.html` as the Pages site's `index.html`. Workflow concurrency
 serializes scheduled/manual runs so they cannot overlap judgments or commits.
+
+## Timeline
+
+Below Use today, Timeline defaults to the latest 30 calendar days in the data.
+Select a month with data to see the whole calendar month and its best family per
+zone, most disliked family, first-week versus last-week movers, and busiest threads.
+The race and line chart use seven-day rolling scores; the race takes the 12
+families with most opinions in the selected range. Play/pause, date scrubbing,
+and 1×/2× playback work entirely offline. Reduced-motion preferences disable
+transitions. Click a line legend item to isolate that family. Windows with fewer
+than five opinions are marked as low data; mover captions require 15 opinions
+in both compared windows and at least a 15-point change over three days. Month
+movers compare the first and last seven calendar days of that month.
+
+Item timestamps determine all daily grouping and chart ranges. Missing comment
+timestamps fall back to their parent post, then the recorded judgment time.
+Quality filtering runs before Jev: threads older than three days need score 10;
+threads up to three days old need five comments. Settled comments with score zero or below,
+deleted/removed text, and AutoModerator comments are skipped. Thresholds are
+named constants and tested with offline fixtures.

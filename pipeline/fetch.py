@@ -8,6 +8,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+try:
+    from .quality import comment_qualifies, thread_qualifies
+except ImportError:
+    from quality import comment_qualifies, thread_qualifies
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 SUBREDDITS_PATH = ROOT / "config" / "subreddits.txt"
@@ -17,7 +22,7 @@ DAYS = 5
 SECONDS_PER_DAY = 86400
 POST_PAGE_SIZE = 100
 COMMENT_PAGE_SIZE = 100
-TOP_POSTS = 8
+TOP_POSTS = 25
 MAX_CONCURRENT_REQUESTS = 4
 RETRIES = 4
 BACKOFF_SECONDS = 3
@@ -108,7 +113,8 @@ def fetch_subreddit(subreddit, *, now=None, fetch_json=get):
         now,
         POST_PAGE_SIZE,
     )
-    top = sorted(posts, key=lambda post: post.get("score") or 0, reverse=True)[:TOP_POSTS]
+    eligible = [post for post in posts if thread_qualifies(post, now=now)]
+    top = sorted(eligible, key=lambda post: post.get("score") or 0, reverse=True)[:TOP_POSTS]
     output = []
     for post in top:
         post_id = str(post.get("id") or "")
@@ -129,8 +135,10 @@ def fetch_subreddit(subreddit, *, now=None, fetch_json=get):
             }
             | {
                 "comments": [
-                    {key: comment.get(key) for key in ("id", "body", "score", "created_utc")}
+                    {key: comment.get(key) for key in ("id", "body", "score", "created_utc", "author")}
                     for comment in comments
+                    if comment_qualifies(comment, now=now,
+                                         parent_created_utc=post.get("created_utc"))
                 ]
             }
         )

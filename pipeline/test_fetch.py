@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from fetch import get, load_subreddits, run_fetch
+from fetch import TOP_POSTS, get, load_subreddits, run_fetch
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -50,10 +50,10 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(delays, [3, 6])
         self.assertEqual(parse_qs(urlsplit(calls[-1][0].full_url).query), {"subreddit": ["Example Sub"], "after": ["10"]})
 
-    def test_fetch_keeps_top_eight_recent_posts_and_created_timestamps(self):
+    def test_fetch_keeps_top_25_eligible_recent_posts_and_created_timestamps(self):
         recent = [
             {"id": f"p{score}", "title": f"Thread {score}", "selftext": "", "score": score,
-             "num_comments": 1, "permalink": f"/r/Example/comments/p{score}/thread/",
+             "num_comments": 5, "permalink": f"/r/Example/comments/p{score}/thread/",
              "created_utc": NOW - score * 10}
             for score in range(10)
         ]
@@ -74,7 +74,8 @@ class FetchTests(unittest.TestCase):
         item = result["Example"]
 
         self.assertEqual(item["scanned"], 10)
-        self.assertEqual([post["score"] for post in item["top"]], list(range(9, 1, -1)))
+        self.assertEqual(TOP_POSTS, 25)
+        self.assertEqual([post["score"] for post in item["top"]], list(range(9, -1, -1)))
         self.assertTrue(all(post["created_utc"] is not None for post in item["top"]))
         self.assertTrue(all(comment["created_utc"] == NOW - 20 for post in item["top"] for comment in post["comments"]))
         self.assertTrue(all(post["id"] not in {"old", "future"} for post in item["top"]))

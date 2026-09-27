@@ -117,6 +117,58 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(saved["families"]["Qwen"]["mixed"], 1)
         self.assertEqual(saved["families"]["Qwen"]["opinion"], 1)
 
+    def test_daily_uses_item_day_when_judgment_was_made_later(self):
+        created = stamp("2026-09-08T12:00:00")
+        judged = stamp("2026-09-28T07:00:00")
+        row = item("c1", "Claude Opus", "Opus 5.5", created)
+        saved_judgment = judgment(row, "praise", judged_at=judged)
+        saved_judgment["created_utc"] = judged
+        with patch("store.os.fsync"):
+            store.append_item(self.root, row)
+            store.append_judgment(self.root, saved_judgment)
+
+        days = store.rebuild_daily(self.root)
+
+        self.assertEqual(set(days), {"2026-09-08"})
+        [loaded] = store.load_mentions(self.root)
+        self.assertEqual(loaded["created_utc"], created)
+        self.assertTrue((self.root / "daily" / "2026-09-08.json").exists())
+        self.assertFalse((self.root / "daily" / "2026-09-28.json").exists())
+
+    def test_parent_refresh_repairs_an_old_judged_fallback_and_moves_month_file(self):
+        judged = stamp("2026-09-28T07:00:00")
+        parent = stamp("2026-08-05T12:00:00")
+        row = item("c1", "Claude Opus", "Opus 5.5", judged)
+        saved_judgment = judgment(row, "praise", judged_at=judged)
+        saved_judgment["created_utc"] = judged
+        with patch("store.os.fsync"):
+            store.append_item(self.root, row)
+            store.append_judgment(self.root, saved_judgment)
+
+        refreshed = dict(row, created_utc=None, parent_created_utc=parent)
+        store.update_items(self.root, [refreshed])
+        days = store.rebuild_daily(self.root)
+
+        self.assertEqual(set(days), {"2026-08-05"})
+        [saved] = store.load_mentions(self.root)
+        self.assertEqual(store.date(saved["created_utc"]), "2026-08-05")
+        self.assertEqual([path.name for path in (self.root / "items").glob("*.jsonl")],
+                         ["2026-08.jsonl"])
+
+    def test_parent_date_does_not_replace_a_known_item_date(self):
+        own = stamp("2026-09-08T12:00:00")
+        parent = stamp("2026-09-01T12:00:00")
+        row = item("c1", "Claude Opus", "Opus 5.5", own)
+        with patch("store.os.fsync"):
+            store.append_item(self.root, row)
+
+        refreshed = dict(row, created_utc=None, parent_created_utc=parent)
+        store.update_items(self.root, [refreshed])
+
+        [saved] = store.read_rows(self.root / "items")
+        self.assertEqual(saved["created_utc"], own)
+        self.assertEqual(saved["created_utc_source"], "item")
+
     def test_rebuilding_daily_removes_stale_days(self):
         (self.root / "daily").mkdir(parents=True)
         (self.root / "daily" / "1999-01-01.json").write_text("{}", encoding="utf-8")

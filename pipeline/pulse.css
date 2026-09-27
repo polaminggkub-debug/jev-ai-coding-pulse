@@ -168,6 +168,52 @@ main, #zones { width: 100%; max-width: 100%; min-width: 0; }
 .low-data .rank-model { margin-left: 12px; }
 .threads { margin: 3px 0; padding-left: 20px; }
 .threads li { margin: 5px 0; font-size: 13px; }
+#timeline h2 { margin-bottom: 12px; }
+.timeline-controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
+.timeline-controls > label { color: var(--mut); font-size: 12px; }
+.timeline-controls select { min-width: 125px; }
+.timeline-speed { display: inline-flex; gap: 4px; }
+.timeline-speed button { min-width: 48px; }
+.timeline-period, .timeline-note { margin: 4px 0; color: var(--mut); font-size: 12px; }
+.timeline-date { margin: 4px 0 2px; font-size: clamp(24px, 5vw, 34px); font-variant-numeric: tabular-nums; }
+#timeline-scrubber { display: block; width: 100%; margin: 0 0 8px; accent-color: var(--pos); }
+.timeline-caption { min-height: 1.5em; margin: 4px 0 10px; font-weight: 600; }
+.timeline-race, .timeline-lines { display: block; width: 100%; height: auto; overflow: visible; }
+.timeline-race text, .timeline-lines text { fill: var(--fg); font: 12px system-ui, sans-serif; }
+.timeline-race .timeline-family { font-size: 12px; font-weight: 600; }
+.timeline-race .timeline-score { font-variant-numeric: tabular-nums; font-weight: 700; }
+.timeline-race .timeline-axis-label, .timeline-lines .timeline-tick { fill: var(--mut); font-size: 11px; }
+.timeline-race .timeline-zero { stroke: var(--mut); stroke-dasharray: 4 4; }
+.timeline-race .timeline-bar { transition: x .68s ease, width .68s ease; }
+.timeline-race .timeline-bar.zone-us { fill: var(--zone-us); }
+.timeline-race .timeline-bar.zone-tool { fill: var(--zone-tool); }
+.timeline-race .timeline-bar.zone-open { fill: var(--zone-open); }
+.timeline-race .timeline-empty .timeline-score { fill: var(--mut); }
+.timeline-race .timeline-row { transition: transform .68s ease; }
+.timeline-lines .timeline-grid { stroke: var(--line); stroke-width: 1; }
+.timeline-lines .timeline-line { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+.timeline-lines .timeline-line.zone-us, .timeline-lines .timeline-line-point.zone-us { stroke: var(--zone-us); }
+.timeline-lines .timeline-line.zone-tool, .timeline-lines .timeline-line-point.zone-tool { stroke: var(--zone-tool); }
+.timeline-lines .timeline-line.zone-open, .timeline-lines .timeline-line-point.zone-open { stroke: var(--zone-open); }
+.timeline-lines .timeline-low-data { stroke-dasharray: 5 4; }
+.timeline-lines .timeline-line-point { fill: var(--card); stroke-width: 2; }
+.timeline-lines .timeline-series { transition: opacity .2s ease; }
+.timeline-lines .timeline-muted { opacity: .08; }
+.timeline-legend { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.timeline-legend-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; }
+.timeline-legend-item::before { width: 12px; border-top: 3px solid; content: ""; }
+.timeline-legend-item.zone-us::before { border-color: var(--zone-us); }
+.timeline-legend-item.zone-tool::before { border-color: var(--zone-tool); }
+.timeline-legend-item.zone-open::before { border-color: var(--zone-open); }
+.timeline-month-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 16px; }
+.timeline-insight { display: flex; min-width: 0; align-items: center; gap: 5px; margin: 3px 0; font-size: 13px; }
+.timeline-insight > strong { flex: 0 0 auto; }
+.timeline-insight > span:last-child { overflow-wrap: anywhere; }
+.timeline-threads { grid-column: 1 / -1; margin: 0; padding-left: 20px; }
+.timeline-threads li { margin: 5px 0; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) {
+  .timeline-race .timeline-bar, .timeline-race .timeline-row, .timeline-lines .timeline-series { transition: none !important; }
+}
 a { color: inherit; }
 @media (max-width: 760px) {
   #use-today { grid-template-columns: 1fr; }
@@ -193,5 +239,6 @@ a { color: inherit; }
   .opinion-display > span:not(.opinion-bar) { font-size: 10px; }
   .model-detail { padding: 0 4px 14px 18px; }
   .version-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name score" "share share" "count count"; gap: 5px 8px; }
+  .timeline-month-insights { grid-template-columns: 1fr; }
   #date-end { flex: 1 1 130px; width: 100%; }
 }

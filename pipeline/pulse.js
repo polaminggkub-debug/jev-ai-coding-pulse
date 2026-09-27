@@ -16,15 +16,13 @@ P.selected = null;
 P.query = '';
 P.latestDate = P.meta.endDate || '';
 P.dateOf = function(row) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(row.date || '')) return row.date;
-  const value = row.created_utc;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Date(value > 1e12 ? value : value * 1000).toISOString().slice(0, 10);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const n = Number(value);
-    const stamp = Number.isFinite(n) ? (n > 1e12 ? n : n * 1000) : Date.parse(value);
-    return Number.isFinite(stamp) ? new Date(stamp).toISOString().slice(0, 10) : null;
+  for (const value of [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at, row.date]) {
+    if (value === null || value === undefined || value === '') continue;
+    const number = Number(value);
+    const stamp = Number.isFinite(number) ? number * (Math.abs(number) > 1e11 ? 1 : 1000) : Date.parse(value);
+    if (Number.isFinite(stamp) && Math.abs(stamp) <= 8640000000000000) {
+      return new Date(stamp).toISOString().slice(0, 10);
+    }
   }
   return null;
 };
@@ -41,9 +39,21 @@ P.shortDate = function(day) {
   const [year, month, date] = day.split('-').map(Number);
   return `${date} ${months[month - 1]} ${year}`;
 };
-P.updatedLabel = function(value) {
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  return match ? `${Number(match[3])} ${P.shortDate(value.slice(0, 10)).split(' ')[1]} ${match[1]} ${match[4]}:${match[5]} UTC` : 'time not recorded';
+P.updatedLabel = function(value, timeOnly = false) {
+  const stamp = Date.parse(value);
+  if (!Number.isFinite(stamp)) return 'time not recorded';
+  const thai = new Date(stamp + 7 * 3600000).toISOString();
+  const clock = thai.slice(11, 16);
+  return timeOnly ? clock : `${Number(thai.slice(8, 10))} ${P.shortDate(thai.slice(0, 10)).split(' ')[1]} ${clock}`;
+};
+P.renderUpdate = function() {
+  const target = P.$('update-info');
+  if (!target) return;
+  const count = P.meta.runStats?.newOpinions;
+  const opinions = Number.isFinite(count) ? count.toLocaleString('en-US') : 'unknown';
+  const next = P.meta.nextUpdateAt ? P.updatedLabel(P.meta.nextUpdateAt, true) : 'unknown';
+  const start = P.meta.startDate ? P.shortDate(P.meta.startDate).replace(/ \d{4}$/, '') : 'unknown';
+  target.textContent = `Updated ${P.updatedLabel(P.meta.updatedAt)} (Thai time) · next update ~${next} · this run read ${opinions} new opinions · history since ${start}`;
 };
 P.windowStart = function() {
   const start = P.addDays(P.endDate, -(P.rangeDays - 1));
@@ -128,8 +138,8 @@ P.renderHistoryNote = function() {
 P.renderTime = function() {
   P.renderHistoryNote();
   const start = P.windowStart();
-  const updated = P.updatedLabel(P.meta.updatedAt);
-  P.$('covered-period').textContent = `Comments from ${P.shortDate(start)} – ${P.shortDate(P.endDate)} · updated ${updated}`;
+  P.renderUpdate();
+  P.$('covered-period').textContent = `Comments from ${P.shortDate(start)} – ${P.shortDate(P.endDate)}`;
   P.$('range-status').textContent = `${P.rangeDays === 1 ? '1 day' : `${P.rangeDays} days`} ending ${P.shortDate(P.endDate)} (UTC)`;
   [[1, 'range-today'], [7, 'range-7'], [30, 'range-30']].forEach(([days, id]) =>
     P.$(id).setAttribute('aria-pressed', String(days === P.rangeDays)));
