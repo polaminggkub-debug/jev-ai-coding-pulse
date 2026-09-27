@@ -81,3 +81,16 @@ then verify bulk repository comment grouping, an 800-attempt ceiling, a
 100-request deployment reserve, and retained partial pages. Lobsters fixtures
 reproduce the string-valued `commenting_user` response from both public tag
 feeds; string and mapping author formats are accepted.
+
+Recovery run `36352900345` succeeded, including Pages deployment. It collected
+all nine GitHub repositories using 259 requests and built 22,807 mentions with
+40 reading picks across ten dates. Both public pages returned HTTP 200; Vivaldi
+rendered four picks for September 27 and ten picks in the weekly view. Bluesky
+still returned the explicitly permitted 403 skip. Dev.to returned intermittent
+429 responses, so the follow-up uses paced requests and bounded Retry-After
+handling, with deterministic failure-before-fix coverage.
+
+Reading cards now retain the highest-voted quality-qualified fetched comment,
+even when that comment contains no model keyword. A regression proves it adds
+no sentiment call and survives a cached judgment refresh. The extra metadata
+is excluded from the ranking page's inline mention payload.
