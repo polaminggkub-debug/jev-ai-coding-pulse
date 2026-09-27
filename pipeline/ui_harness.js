@@ -5,11 +5,13 @@ class Element {
   constructor(tag) {
     this.tag = tag; this.children = []; this.style = {}; this.dataset = {};
     this.events = {}; this.value = ''; this.checked = false;
-    this.textContent = ''; this.attributes = {}; this.hidden = false;
+    this._textContent = ''; this.attributes = {}; this.hidden = false;
     this.classList = {add: cls => { this.className = `${this.className || ''} ${cls}`.trim(); }};
   }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.append(child); return child; }
+  set textContent(value) { this._textContent = String(value ?? ''); this.children = []; }
+  get textContent() { return this._textContent; }
   replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) {
     this.attributes[name] = String(value); this[name] = String(value);
@@ -58,7 +60,7 @@ class FixedDate extends Date {
 }
 function harness(rows, meta, logos = {}) {
   const names = ['pulse-data', 'pulse-meta', 'pulse-logos', 'expand', 'chips', 'selection', 'zones',
-    'use-today', 'chart', 'search', 'theme', 'range-status', 'range-today', 'range-7', 'range-30',
+    'trend-alerts', 'use-today', 'chart', 'search', 'theme', 'range-status', 'history-note', 'range-today', 'range-7', 'range-30',
     'covered-period', 'date-prev', 'date-next', 'date-end', 'back-latest'];
   const ids = Object.fromEntries(names.map(id => [id, new Element(id)]));
   ids['pulse-data'].textContent = JSON.stringify(rows);

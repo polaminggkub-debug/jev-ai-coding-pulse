@@ -10,3 +10,5 @@ python3 scripts/check_structure.py
 python3 -m unittest discover -s scripts -p 'test_*.py'
 python3 -m unittest discover -s pipeline
 node pipeline/test_pulse_ui.js
+node pipeline/test_pulse_trends.js
+node pipeline/test_pulse_trend_ui.js

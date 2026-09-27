@@ -62,10 +62,24 @@ The builder reads only daily files and items; it checks that the stored family
 and version counts agree with each day's `opinions` list. Existing daily files
 that predate `opinions` can be upgraded offline with
 `python3 -c 'from pipeline import store; store.rebuild_daily("data")'`. Praise,
-complaint, and mixed percentages use opinions as their denominator; Net is
-praise% minus complaint%. Families need 20 opinions in the selected period to
+complaint, and mixed percentages use opinions as their denominator. The UI calls
+praise “liked” and complaint “disliked”; Score is liked% minus disliked%.
+Ranking bars show liked, mixed, and disliked shares from left to right. Chart
+backgrounds show positive/negative scores, and rings identify each model's zone.
+A history note appears when a selected range reaches before the first data day.
+Families need 20 opinions in the selected period to
 rank. Mentions include neutral rows. These are Reddit sentiment summaries, not
 model benchmarks. Time filtering applies to all views and requires no new judging.
+
+Trend alerts compare the last 48 hours ending at midnight UTC immediately after
+the selected date with the preceding seven days, using comment timestamps.
+Families and named versions need at least 15 opinions now, 20 before, and a
+15-point score change to trigger a rise or drop. Newly discussed names need
+15 opinions now and fewer than five before. The strip shows up to five alerts,
+with the largest score changes first and new names after them. Rise/drop alerts
+link to the most-voted praise/complaint in the recent window when available;
+ranking and version rows show the corresponding change. The ranking, chart, and
+Use-today cards still default to seven days.
 
 ## Collection and scheduled publishing
 

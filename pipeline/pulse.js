@@ -117,7 +117,16 @@ P.netText = value => {
 };
 P.escape = value => String(value ?? '').replace(/[&<>"']/g, char =>
   ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+P.renderHistoryNote = function() {
+  const note = P.$('history-note');
+  const first = P.availableDates[0];
+  const requestedStart = P.addDays(P.endDate, -(P.rangeDays - 1));
+  note.hidden = !first || requestedStart >= first;
+  note.textContent = note.hidden ? '' :
+    `History starts ${P.shortDate(first)} — longer ranges fill in as daily runs accumulate.`;
+};
 P.renderTime = function() {
+  P.renderHistoryNote();
   const start = P.windowStart();
   const updated = P.updatedLabel(P.meta.updatedAt);
   P.$('covered-period').textContent = `Comments from ${P.shortDate(start)} – ${P.shortDate(P.endDate)} · updated ${updated}`;
