@@ -1,38 +1,43 @@
-# Task: turn the demo pipeline into a browsable "Jev Reddit Pulse" demo page
+# Task 2: durable Jev judgments + scheduled runs
 
-Context: `pipeline/` holds a working throwaway demo (Python 3 stdlib only). `fetch.py` pulls top Reddit threads + comments
-from the Arctic Shift API into `data/raw.json`; `classify.py` asks Jev (a classifier model, OpenRouter) whether each
-comment praises/complains about a model, writing `data/labeled.json`; `build.py` renders `pulse.html`.
-Scripts currently use bare relative paths; make them work when run from the repo root.
-Focus: AI models and tools **for coding**. Zones: `us` (US frontier), `open` (China + open-weight), `tool` (coding tools).
+Context: see README.md and `pipeline/`. Python 3 stdlib only. You have NO network and NO API key: never call Jev or
+Arctic Shift; use fakes in tests. The goal: we pay only for Jev (OpenRouter); every Jev answer is stored forever and
+reused, and nothing is ever judged twice.
 
-You have NO network and NO API key. Do not call Jev or Arctic Shift. Work only from `data/*.json`.
+## 1. Storage (replace `data/classify_cache.json` and `data/labeled.json` as the source of truth)
+- `data/judgments/YYYY-MM.jsonl` (month of the comment's `created_utc`): append-only, one line per Jev answer:
+  `{"id","kind","subject","q","label","probs","created_utc","judged_at"}`. `q` = question version string
+  (e.g. `"sentiment-v1"`) defined next to the question in classify.py. A pair is "already judged" when
+  `(id, subject, q)` exists in any month file. Changing the question text means bumping `q`.
+- `data/items/YYYY-MM.jsonl`: per judged item, the metadata the page needs (id, kind, sub, score, link, thread,
+  thread_score, thread_url, subject, zone, version, short text ≤400 chars). Scores may be updated in place on rerun.
+- `data/daily/YYYY-MM-DD.json`: per-day aggregate per family and per version (praise/complaint/mixed/no_opinion counts,
+  opinion count), keyed by comment date. Rebuilt from the jsonl files, never from Jev.
+- One-time migration: import the existing `data/classify_cache.json` + `data/labeled.json` + `data/raw.json` into the new
+  layout (created_utc may be missing for old rows; fall back to judged date). Then delete the old files.
 
-## 1. Model versions (no Jev calls)
-Each labeled mention currently has a `subject` = model family (e.g. "Claude Opus"). Add a `version` field:
-1. Explicit version in the comment text → use it (e.g. "opus 5.5" → "Opus 5.5", "qwen3.8" → "Qwen 3.8", "gpt-6" → "GPT-6").
-2. Else a version in the thread title → use that.
-3. Else `version = null` (counts toward the family only; never guess).
-Known GPT-6 nicknames: Astra, Sol, Luna, Terra → versions "GPT-6 Astra", "GPT-6 Sol", "GPT-6 Luna", "GPT-6 Terra".
-Also add Xiaomi MiMo (`\bmimo\b`, zone `open`) to `registry.py`.
-Put version extraction in its own module with a `unittest` file covering the three rules and the nicknames.
+## 2. Fetching (`fetch.py`)
+- Subreddits come from `config/subreddits.txt` (one per line, `#` comments). Seed it with:
+  AgentsOfAI AutoGPT ChatGPTCoding ChatGPTPro ClaudeAI ClaudeCode CursorAI GeminiAI GithubCopilot LLM LLMDevs LocalLLM
+  LocalLLaMA PromptEngineering QualityAssurance Qwen_AI ZaiGLM aipromptprogramming codex cursor google_antigravity grok
+  kimi kiroIDE opencodeCLI vibecoding OpenAI Anthropic OpenAIDev GoogleGeminiAI Bard DeepSeek MiniMax_AI MistralAI
+  ollama unsloth huggingface LocalAIServers openrouter AI_Agents mcp CLine kilocode windsurf Jetbrains Replit lovable
+  ExperiencedDevs
+- Each run: posts from the last 5 days per subreddit, keep the top 8 by score, fetch their comments. Store
+  `created_utc` on posts and comments. Threads older than 5 days are no longer fetched. Be polite: ≤4 concurrent requests,
+  retry with backoff, and one failing subreddit must not fail the run.
 
-## 2. Incremental re-runs (dedupe by comment id)
-`classify.py` must keep a store of already-judged `(comment_id, subject)` pairs in `data/` and only send pairs not seen
-before. Re-running with no new data must make zero Jev calls. Thread scores may be refreshed without re-judging.
-Add a unittest for this using a fake `decide` function.
+## 3. Page
+`build.py` reads the new storage. Add a time-range switch: Today / 7 days / 30 days (default 7 days), computed from
+the stored data only. Keep everything else the page already does.
 
-## 3. The page (`build.py` → `pulse.html`)
-Single static HTML file, data embedded as JSON, vanilla JS, no external requests. Keep the existing look (CSS tokens,
-light/dark). Must work at phone width with no horizontal scroll.
-- **Quick view by default:** per zone, one row per model family: praise/mixed/complaint bar, %s, opinion count.
-- **Detail on demand:** click a family row to expand its versions (each with its own bar and %s, plus "version unknown"),
-  the best-voted praise quote and complaint quote (with link + ▲score), and its top threads. An "expand all" toggle too.
-- **Search / pick any model:** a search box at the top plus clickable chips for every family and version found in the
-  data (not only the top ones). Selecting one shows just that model's card, even if it has few mentions.
-- Keep "Most talked about" and the per-zone "best right now" pick (require ≥20 opinions for the pick).
+## 4. Scheduled run
+`.github/workflows/pulse.yml`: cron twice a day (00:00 and 12:00 UTC) + manual dispatch. Steps: checkout, python 3.12,
+run fetch → classify → build, commit changed `data/` and the built page back to the repo, deploy the page to GitHub
+Pages. Secret name: `OPENROUTER_API_KEY`. Add a hard cap: classify stops after 8000 new Jev calls per run and logs it.
 
 ## Done when
-- `python3 -m unittest discover -s pipeline` passes.
-- `python3 pipeline/build.py` produces `pulse.html` from the existing `data/labeled.json` without network.
-- Each file ≲300 lines. Commit your work on branch `feature/pulse-demo` with a clear message.
+- `python3 -m unittest discover -s pipeline` passes, with tests for: no re-judging across month files, bumping `q`
+  re-judges, migration keeps every existing judgment, daily aggregates, the 8000-call cap.
+- `python3 pipeline/build.py` works offline from the migrated data.
+- Each file ≲300 lines. Update README.md. Commit on a new branch `feature/durable-store` (branch from current HEAD).
