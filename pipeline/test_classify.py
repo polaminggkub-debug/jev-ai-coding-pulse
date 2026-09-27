@@ -153,7 +153,7 @@ class DurableClassifyTests(unittest.TestCase):
         self.assertLessEqual(len(rows[0]["text"]), 400)
         self.assertNotIn("5.7", rows[0]["text"])
 
-    def test_migration_unions_cache_and_labels_including_cache_only_answers(self):
+    def prepare_legacy_migration(self):
         created = stamp("2026-01-12T12:00:00")
         judged = stamp("2026-01-13T12:00:00")
         fallback_date = stamp("2025-12-30T12:00:00")
@@ -190,6 +190,8 @@ class DurableClassifyTests(unittest.TestCase):
             path = self.root / name
             os.utime(path, (modified, modified))
 
+    def test_migration_unions_cache_and_labels_including_cache_only_answers(self):
+        self.prepare_legacy_migration()
         added = migrate(self.root)
 
         rows = list(store.read_rows(self.root / "judgments"))

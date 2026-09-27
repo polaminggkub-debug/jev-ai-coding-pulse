@@ -2,18 +2,26 @@
 
 Open `pulse.html` directly in a browser. It embeds its data, styles, and vanilla
 JavaScript and makes no external requests. Source links open Reddit when clicked.
-Use Today / 7 days / 30 days (default 7) to filter by UTC comment/post date, ending
-today. Family rows start collapsed; expand them to inspect versions, excerpts,
-and threads. Search filters model choices, and chips isolate families or versions.
+The covered UTC period and update time appear under the title. Today / 7 days /
+30 days (default 7) set the range; the date controls move its end across days
+with data, and **Back to latest** returns to the newest day. Expand a family row
+to inspect versions, excerpts, and threads. Chips show the ten most-mentioned
+families; search also finds versions.
 
-## Offline build and checks
+## Checks
 
-Python 3's standard library is sufficient (macOS/Linux; CI uses Python 3.12):
+Run `scripts/check.sh` before every merge. It compiles the Python sources,
+checks source size, imports, function lengths, and external page loads, then runs
+the Python and Node UI tests.
+
+## Offline build
+
+Python 3's standard library is sufficient (macOS/Linux; CI checks Python 3.11,
+3.12, and 3.13):
 
 ```sh
-python3 -m unittest discover -s pipeline
+scripts/check.sh
 python3 pipeline/build.py
-node pipeline/test_pulse_ui.js  # optional dependency-free UI interaction checks
 ```
 
 The checked-in data is already migrated. To import a legacy checkout offline:
@@ -35,9 +43,10 @@ modification time when no judgment date exists. Old timestamps are approximate.
   UTC creation month. Each records `id`, `kind`, `subject`, `q`, `label`, `probs`,
   `created_utc`, and `judged_at`. All month files participate in deduplication.
 - `data/items/YYYY-MM.jsonl`: metadata and excerpts of at most 400 characters.
-  Reruns refresh scores while retaining historical items.
-- `data/daily/YYYY-MM-DD.json`: derived family and family/version label counts,
-  plus `opinion` (all labels except `no_opinion`), keyed by creation date.
+  These rows supply the comment details and links shown on the page.
+- `data/daily/YYYY-MM-DD.json`: family and family/version counts plus an
+  `opinions` list with the item ID, family, version, label, and UTC creation
+  time. The page builder joins these opinion records to their item rows.
 - `data/incoming.json`: latest fetch input, never the judgment source of truth.
 
 `QUESTION_VERSION` lives beside `Q` in `pipeline/classify.py`. **Bump the version
@@ -49,12 +58,14 @@ proceeding. A local file lock serializes classifier runs. Failures remain retrya
 on the next run. Each run makes at most 8,000 new decision requests, including
 failed requests, and logs when this cap is reached; there are no hidden API retries.
 
-The builder reads the durable store and rebuilds daily counts offline. Known
-versions are extracted before text truncation; unknown versions remain `null`.
-Opinion bars exclude neutral mentions. Picks require 20 opinions and rank by
-(praise − complaint) / opinions, then opinion count and name. Most-talked-about
-counts include neutral mentions. These are Reddit sentiment summaries, not model
-benchmarks. Time filtering applies to all these views and requires no new judging.
+The builder reads only daily files and items; it checks that the stored family
+and version counts agree with each day's `opinions` list. Existing daily files
+that predate `opinions` can be upgraded offline with
+`python3 -c 'from pipeline import store; store.rebuild_daily("data")'`. Praise,
+complaint, and mixed percentages use opinions as their denominator; Net is
+praise% minus complaint%. Families need 20 opinions in the selected period to
+rank. Mentions include neutral rows. These are Reddit sentiment summaries, not
+model benchmarks. Time filtering applies to all views and requires no new judging.
 
 ## Collection and scheduled publishing
 

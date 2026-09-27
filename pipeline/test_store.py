@@ -103,6 +103,16 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(saved["versions"]["Claude Opus"]["Opus 5.5"], {
             "praise": 1, "complaint": 1, "mixed": 0, "no_opinion": 0, "opinion": 2,
         })
+        self.assertEqual(saved["opinions"], [
+            {"id": "c1", "subject": "Claude Opus", "version": "Opus 5.5", "label": "praise",
+             "q": "sentiment-v1", "probs": {"praise": 0.9}, "created_utc": created},
+            {"id": "c2", "subject": "Claude Opus", "version": "Opus 5.5", "label": "complaint",
+             "q": "sentiment-v1", "probs": {"complaint": 0.9}, "created_utc": created},
+            {"id": "c3", "subject": "Claude Opus", "version": "Opus 5.7", "label": "no_opinion",
+             "q": "sentiment-v1", "probs": {"no_opinion": 0.9}, "created_utc": created},
+            {"id": "c4", "subject": "Qwen", "version": "Qwen 3.8", "label": "mixed",
+             "q": "sentiment-v1", "probs": {"mixed": 0.9}, "created_utc": created},
+        ])
         self.assertEqual(saved["versions"]["Claude Opus"]["Opus 5.7"]["opinion"], 0)
         self.assertEqual(saved["families"]["Qwen"]["mixed"], 1)
         self.assertEqual(saved["families"]["Qwen"]["opinion"], 1)

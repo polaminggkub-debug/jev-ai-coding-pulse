@@ -121,7 +121,7 @@ def load_mentions(root):
 def rebuild_daily(root):
     days = {}
     for row in load_mentions(root):
-        day = days.setdefault(date(row['created_utc']), {'families': {}, 'versions': {}})
+        day = days.setdefault(date(row['created_utc']), {'families': {}, 'versions': {}, 'opinions': []})
         groups = [(day['families'], row['subject'])]
         if row.get('version'):
             versions = day['versions'].setdefault(row['subject'], {})
@@ -130,6 +130,11 @@ def rebuild_daily(root):
             counts = group.setdefault(name, dict.fromkeys((*LABELS, 'opinion'), 0))
             counts[row['label']] += 1
             counts['opinion'] += row['label'] != 'no_opinion'
+        day['opinions'].append({
+            'id': row['id'], 'subject': row['subject'], 'version': row.get('version'),
+            'label': row['label'], 'q': row.get('q'), 'probs': row.get('probs'),
+            'created_utc': row['created_utc'],
+        })
     directory = Path(root) / 'daily'
     directory.mkdir(parents=True, exist_ok=True)
     for day, counts in days.items():

@@ -29,6 +29,25 @@ def migrate(root):
         return _migrate(root)
 
 
+def _legacy_records(legacy, key, metadata, fallback):
+    item = dict(metadata.get(key, {}))
+    judged = legacy.get('judged_at') or item.get('judged_at') or fallback
+    created = legacy.get('created_utc') or item.get('created_utc') or judged
+    kind = item.get('kind') or ('post' if key[0].startswith('post:') else 'comment')
+    item.update(id=key[0], subject=key[1], kind=kind, created_utc=created)
+    for field, default in [('text', ''), ('sub', ''), ('link', ''), ('thread', ''),
+                           ('thread_url', ''), ('score', 0), ('thread_score', 0)]:
+        item.setdefault(field, default)
+    if 'version' not in item:
+        item['version'] = extract_version(key[1], item['text'], item['thread'])
+    if not item.get('zone'):
+        item['zone'] = next((zone for subject, zone, _ in R if subject == key[1]), 'tool')
+    judgment = dict(id=key[0], kind=kind, subject=key[1], q=legacy.get('q') or QUESTION_VERSION,
+                    label=legacy['label'], probs=legacy.get('probs'),
+                    created_utc=store.timestamp(created), judged_at=store.timestamp(judged))
+    return item, judgment
+
+
 def _migrate(root):
     root = Path(root)
     paths = [root / name for name in ('classify_cache.json', 'labeled.json', 'raw.json')]
@@ -51,22 +70,8 @@ def _migrate(root):
         key = identity(legacy)
         if not all(key):
             raise ValueError('Legacy judgment has no recoverable identity')
-        item = dict(metadata.get(key, {}))
-        judged = legacy.get('judged_at') or item.get('judged_at') or fallback
-        created = legacy.get('created_utc') or item.get('created_utc') or judged
-        kind = item.get('kind') or ('post' if key[0].startswith('post:') else 'comment')
-        item.update(id=key[0], subject=key[1], kind=kind, created_utc=created)
-        for field, default in [('text', ''), ('sub', ''), ('link', ''), ('thread', ''),
-                               ('thread_url', ''), ('score', 0), ('thread_score', 0)]:
-            item.setdefault(field, default)
-        if 'version' not in item:
-            item['version'] = extract_version(key[1], item['text'], item['thread'])
-        if not item.get('zone'):
-            item['zone'] = next((zone for subject, zone, _ in R if subject == key[1]), 'tool')
+        item, judgment = _legacy_records(legacy, key, metadata, fallback)
         items.append(item)
-        judgment = dict(id=key[0], kind=kind, subject=key[1], q=legacy.get('q') or QUESTION_VERSION,
-                        label=legacy['label'], probs=legacy.get('probs'),
-                        created_utc=store.timestamp(created), judged_at=store.timestamp(judged))
         sig = signature(judgment)
         if sig not in existing:
             additions.append(judgment)
