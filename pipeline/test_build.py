@@ -118,10 +118,11 @@ class BuildTests(unittest.TestCase):
                            .split('</script>')[0])
         self.assertEqual(set(logos), {path.stem for path in build_module.LOGOS.glob('*.svg')})
         self.assertTrue(all('<svg' in logo for logo in logos.values()))
-        for element_id in ('use-today', 'chart', 'covered-period', 'date-prev', 'date-next',
+        for element_id in ('trend-alerts', 'use-today', 'chart', 'covered-period', 'date-prev', 'date-next',
                            'date-end', 'back-latest', 'range-today', 'range-7', 'range-30',
-                           'range-status', 'expand'):
+                           'range-status', 'history-note', 'expand'):
             self.assertIn(f'id="{element_id}"', page)
+        self.assertLess(page.index('id="trend-alerts"'), page.index('id="use-today"'))
 
     def test_count_only_daily_records_explain_the_required_offline_upgrade(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -13,7 +13,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = Path(__file__).resolve().parent
 LOGOS = ROOT / 'assets' / 'logos'
-SCRIPTS = ('pulse.js', 'pulse-rank.js', 'pulse-chart.js')
+SCRIPTS = ('pulse.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js')
 
 
 def _prepare_mentions(rows):
@@ -143,8 +143,9 @@ def _page(rows, meta, output):
 <title>Jev Reddit Pulse</title><style>{css}</style></head>
 <body><header><h1>Jev Reddit Pulse</h1><button id="theme" type="button">Toggle light/dark</button></header>
 <p id="covered-period" class="m" role="status"></p>
+<section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
 <section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
-<p class="m">Praise and complaint are shares of opinions; Net is praise minus complaint. Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
+<p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
 <section aria-label="Choose a time range"><h2>Time range</h2>
 <div id="time-range" role="group" aria-label="Time range">
 <button id="range-today" type="button" aria-pressed="false">Today</button>
@@ -154,7 +155,7 @@ def _page(rows, meta, output):
 <label for="date-end">End date</label><select id="date-end" aria-label="End date"></select>
 <button id="date-next" type="button" aria-label="Later end date">▶</button>
 <button id="back-latest" type="button">Back to latest</button></div>
-<p id="range-status" class="m" role="status"></p></section>
+<p id="range-status" class="m" role="status"></p><p id="history-note" class="m" role="status" hidden></p></section>
 <section aria-label="Buzz versus love"><h2>Buzz vs love</h2><div id="chart"></div></section>
 <section aria-label="Find a model"><label for="search">Search any family or version</label>
 <input id="search" type="search" placeholder="Try Opus, GPT-6, Qwen…" autocomplete="off">

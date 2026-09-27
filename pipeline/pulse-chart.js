@@ -46,10 +46,24 @@ C.pointLabel = function(label, x, y) {
     `<line x1="12" y1="12" x2="${dx}" y2="${dy - 4}" class="label-connector"/>` : '';
   return `${connector}<text class="point-label" x="${dx}" y="${dy}" text-anchor="${label.anchor}">${C.escape(label.label)}</text>`;
 };
+C.chartShares = function(model) {
+  const total = model.stats.opinions || 1;
+  return {liked: Math.round(100 * model.stats.praise / total),
+    disliked: Math.round(100 * model.stats.complaint / total)};
+};
+C.chartZoneClass = function(model) {
+  return ({us: 'zone-us', tool: 'zone-tool', open: 'zone-open'})[model.zone] || 'zone-open';
+};
 C.chartPoint = function(model, x, y, label) {
-  const tip = `${model.subject} · Net ${C.netText(model.stats.net)} · ${model.stats.opinions} opinions`;
+  const shares = C.chartShares(model);
+  const tip = `${model.subject} · 👍 ${shares.liked}% · 👎 ${shares.disliked}% · Score ${C.netText(model.stats.net)} · ${model.stats.opinions} opinions`;
   const safe = C.escape(tip);
-  return `<g class="point" transform="translate(${x - 12} ${y - 12})" tabindex="0" role="button" aria-label="${safe}" data-tip="${safe}"><title>${safe}</title>${C.svgLogo(model.subject, 0, 0)}${C.pointLabel(label, x, y)}</g>`;
+  return `<g class="point ${C.chartZoneClass(model)}" transform="translate(${x - 12} ${y - 12})" tabindex="0" role="button" aria-label="${safe}" data-tip="${safe}"><title>${safe}</title><circle class="zone-ring" cx="12" cy="12" r="13.5"/>${C.svgLogo(model.subject, 0, 0)}${C.pointLabel(label, x, y)}</g>`;
+};
+C.chartLegend = function() {
+  const keys = [['us', 'zone-us'], ['tool', 'zone-tool'], ['open', 'zone-open']];
+  const items = keys.map(([zone, color]) => `<li><span class="zone-swatch ${color}" aria-hidden="true"></span>${C.escape(C.zones[zone])}</li>`).join('');
+  return `<ul class="chart-zone-legend" aria-label="Model zones">${items}</ul>`;
 };
 C.chartTicks = function(max, left, width, top, bottom, height) {
   const ticks = [20, 50, 100, 250, 500, 1000].filter(n => n >= 20 && n < max);
@@ -84,13 +98,15 @@ C.renderChart = function(models) {
   const svg = `<svg class="buzz-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Buzz versus love scatter chart">
     <text x="${left}" y="${28 * scale}" class="quadrant">Loved, quiet</text><text x="${rightEdge}" text-anchor="end" y="${28 * scale}" class="quadrant">Loved &amp; hot</text>
     <text x="${left}" y="${394 * scale}" class="quadrant">Ignore</text><text x="${rightEdge}" text-anchor="end" y="${394 * scale}" class="quadrant">Hot but hated</text>
+    <rect x="${left}" y="${top}" width="${plotWidth}" height="${midY - top}" class="score-positive-zone"/><rect x="${left}" y="${midY}" width="${plotWidth}" height="${bottom - midY}" class="score-negative-zone"/>
     <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" class="axis"/><line x1="${left}" y1="${bottom}" x2="${rightEdge}" y2="${bottom}" class="axis"/>
     <line x1="${left}" y1="${midY}" x2="${rightEdge}" y2="${midY}" class="zero-line"/><line x1="${midX}" y1="${top}" x2="${midX}" y2="${bottom}" class="gridline"/>
+    <text x="${left + 6}" y="${top + 18 * scale}" class="score-half-label score-half-positive">👍 more liked</text><text x="${left + 6}" y="${bottom - 8 * scale}" class="score-half-label score-half-negative">👎 more disliked</text>
     <text x="${left - 6}" y="${top + 4}" text-anchor="end" class="tick">+100</text><text x="${left - 6}" y="${midY + 4}" text-anchor="end" class="tick">0</text><text x="${left - 6}" y="${bottom + 4}" text-anchor="end" class="tick">−100</text>
     ${C.chartTicks(max, left, plotWidth, top, bottom, height)}<text x="${width / 2}" y="${418 * scale}" text-anchor="middle" class="axis-label">Opinions (log scale)</text>
-    <text x="14" y="${height / 2}" text-anchor="middle" class="axis-label" transform="rotate(-90 14 ${height / 2})">Net (−100 to +100)</text>${points}</svg>`;
+    <text x="14" y="${height / 2}" text-anchor="middle" class="axis-label" transform="rotate(-90 14 ${height / 2})">Score (liked − disliked)</text>${points}</svg>`;
   const hint = rankable.length ? 'Hover, focus, or tap a point to inspect it.' : 'No rankable models in this period.';
-  target.innerHTML = `<p id="chart-tip" class="chart-tip" role="status">${hint}</p>${svg}`;
+  target.innerHTML = `<p id="chart-tip" class="chart-tip" role="status">${hint}</p>${svg}${C.chartLegend()}`;
   C.bindChartPoints(target);
 };
 C.bindChartPoints = function(target) {
@@ -102,6 +118,7 @@ C.bindChartPoints = function(target) {
 };
 C.render = function() {
   C.renderTime();
+  C.renderTrends();
   C.chartModels = C.renderRanking();
   C.renderChart(C.chartModels);
 };

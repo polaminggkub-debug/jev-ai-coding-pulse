@@ -8,16 +8,42 @@ R.modelsFor = function(rows) {
 };
 R.compareModels = (a, b) => b.stats.net - a.stats.net ||
   b.stats.opinions - a.stats.opinions || a.subject.localeCompare(b.subject);
-R.diverging = function(stats) {
-  const bar = R.el('span', undefined, 'diverging');
+R.shares = function(stats) {
+  const total = stats.opinions || 0;
+  return total ? {
+    liked: 100 * stats.praise / total,
+    mixed: 100 * stats.mixed / total,
+    disliked: 100 * stats.complaint / total
+  } : {liked: 0, mixed: 0, disliked: 0};
+};
+R.percentText = value => `${Math.round(value)}%`;
+R.opinionBar = function(stats) {
+  const shares = R.shares(stats);
+  const bar = R.el('span', undefined, 'opinion-bar');
   bar.setAttribute('role', 'img');
-  bar.setAttribute('aria-label', `Praise ${Math.round(100 * stats.praise / (stats.opinions || 1))}%, complaint ${Math.round(100 * stats.complaint / (stats.opinions || 1))}%`);
-  const negative = R.el('span', undefined, 'diverging-negative');
-  const positive = R.el('span', undefined, 'diverging-positive');
-  negative.style.width = `${50 * stats.complaint / (stats.opinions || 1)}%`;
-  positive.style.width = `${50 * stats.praise / (stats.opinions || 1)}%`;
-  bar.append(negative, positive);
+  bar.setAttribute('aria-label', `${R.percentText(shares.liked)} liked, ${R.percentText(shares.mixed)} mixed, ${R.percentText(shares.disliked)} disliked`);
+  const liked = R.el('span', undefined, 'opinion-liked');
+  const mixed = R.el('span', undefined, 'opinion-mixed');
+  const disliked = R.el('span', undefined, 'opinion-disliked');
+  liked.style.width = `${shares.liked}%`;
+  mixed.style.width = `${shares.mixed}%`;
+  disliked.style.width = `${shares.disliked}%`;
+  bar.append(liked, mixed, disliked);
   return bar;
+};
+R.opinionDisplay = function(stats) {
+  const shares = R.shares(stats);
+  const display = R.el('span', undefined, 'opinion-display');
+  display.append(
+    R.el('span', `👍 ${R.percentText(shares.liked)} liked`, 'liked-label'),
+    R.opinionBar(stats),
+    R.el('span', `👎 ${R.percentText(shares.disliked)} disliked`, 'disliked-label'));
+  return display;
+};
+R.scorePill = function(net) {
+  const score = R.el('span', `Score ${R.netText(net)}`, `score-pill ${net < 0 ? 'negative' : 'positive'}`);
+  score.setAttribute('title', 'Score = liked % − disliked %');
+  return score;
 };
 R.quote = function(items, label) {
   const best = items.filter(row => row.kind === 'comment' && row.label === label)
@@ -37,11 +63,14 @@ R.versionRows = function(items) {
   if (folded.length) shown.push({name: 'Other', items: folded, mentions: folded.length});
   return shown;
 };
-R.versionDetail = function(version) {
+R.versionDetail = function(subject, version) {
   const stat = R.stats(version.items);
   const row = R.el('div', undefined, 'version-row');
   const meta = R.el('span', `${version.name} · ${version.mentions} mentions`, 'version-name');
-  row.append(meta, R.diverging(stat), R.el('span', `${R.netText(stat.net)} Net`, 'muted'));
+  const trend = R.trendArrow(subject, version.name);
+  if (trend) meta.append(trend);
+  row.append(meta, R.opinionDisplay(stat), R.scorePill(stat.net),
+    R.el('span', `${stat.opinions} people's opinions`, 'opinion-count'));
   return row;
 };
 R.threadList = function(items) {
@@ -65,7 +94,7 @@ R.detail = function(model) {
   const body = R.el('div', undefined, 'model-detail');
   const versions = R.el('div', undefined, 'version-list');
   versions.append(R.el('h3', 'Versions'));
-  R.versionRows(model.items).forEach(version => versions.append(R.versionDetail(version)));
+  R.versionRows(model.items).forEach(version => versions.append(R.versionDetail(model.subject, version)));
   body.append(versions, R.el('h3', 'Best-voted praise'), R.quote(model.items, 'praise'),
     R.el('h3', 'Best-voted complaint'), R.quote(model.items, 'complaint'),
     R.el('h3', 'Top threads'), R.threadList(model.items));
@@ -77,10 +106,11 @@ R.rankRow = function(model, open) {
   const summary = R.el('summary');
   const identity = R.el('span', undefined, 'rank-identity');
   identity.append(R.logo(model.subject), R.el('span', model.subject, 'model-name'));
-  const net = R.el('span', undefined, `net ${model.stats.net < 0 ? 'negative' : 'positive'}`);
-  net.append(R.el('span', 'Net ', 'net-label'), R.el('strong', R.netText(model.stats.net)));
-  summary.append(identity, net, R.diverging(model.stats),
-    R.el('span', `${model.stats.opinions} opinions`, 'opinion-count'));
+  const trend = R.trendArrow(model.subject, null);
+  if (trend) identity.append(trend);
+  summary.append(identity, R.scorePill(model.stats.net),
+    R.el('span', `${model.stats.opinions} people's opinions`, 'opinion-count'),
+    R.opinionDisplay(model.stats));
   row.append(summary, R.detail(model));
   return row;
 };
@@ -107,11 +137,16 @@ R.renderUseToday = function(models) {
       titleLine.append(R.logo(best.subject), R.el('strong', best.subject));
       card.append(titleLine);
       card.append(R.el('p', version ? `mostly ${version.name}` : 'version not specified', 'mostly-version'));
-      card.append(R.el('strong', R.netText(best.stats.net), `use-net ${best.stats.net < 0 ? 'negative' : 'positive'}`),
-        R.el('p', `${best.stats.opinions} opinions`, 'use-opinions'), R.quote(best.items, 'praise'));
+      const shares = R.shares(best.stats);
+      const score = R.el('div', undefined, 'use-score-block');
+      const detail = R.el('div', undefined, 'use-score-detail');
+      detail.append(R.el('span', 'Score (liked − disliked)', 'use-score-label'),
+        R.el('span', `👍 ${R.percentText(shares.liked)} · 👎 ${R.percentText(shares.disliked)}`, 'use-distribution'));
+      score.append(R.el('strong', R.netText(best.stats.net), `use-net ${best.stats.net < 0 ? 'negative' : 'positive'}`), detail);
+      card.append(score, R.el('p', `${best.stats.opinions} people's opinions`, 'use-opinions'), R.quote(best.items, 'praise'));
     }
     const runner = ranked[1];
-    card.append(R.el('p', runner ? `runner-up: ${runner.subject} ${R.netText(runner.stats.net)}` : 'runner-up: none yet', 'runner-up'));
+    card.append(R.el('p', runner ? `runner-up: ${runner.subject} Score ${R.netText(runner.stats.net)}` : 'runner-up: none yet', 'runner-up'));
     target.append(card);
   });
 };
@@ -135,6 +170,7 @@ R.renderChips = function(models) {
 R.renderZones = function(models) {
   const target = R.$('zones');
   target.replaceChildren();
+  target.append(R.el('p', '👍 liked · mixed · 👎 disliked — share of opinions about each model for coding. Score = liked − disliked.', 'ranking-legend legend'));
   Object.entries(R.zones).forEach(([zone, title]) => {
     const section = R.el('section', undefined, 'zone-section');
     section.append(R.el('h2', title));
