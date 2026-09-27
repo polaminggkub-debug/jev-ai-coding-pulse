@@ -11,17 +11,26 @@ class Element {
 }
 function walk(node) { return [node, ...node.children.flatMap(walk)]; }
 function text(node) { return walk(node).map(n => n.textContent).join(' '); }
-const ids = Object.fromEntries(['pulse-data', 'expand', 'chips', 'selection', 'zones', 'buzz', 'search', 'clear', 'theme'].map(id => [id, new Element(id)]));
-const fixture = (subject, label, version, score) => ({subject, label, version, score,
+const ids = Object.fromEntries(['pulse-data', 'expand', 'chips', 'selection', 'zones', 'buzz', 'search', 'clear', 'theme',
+  'range-status', 'range-today', 'range-7', 'range-30'].map(id => [id, new Element(id)]));
+const fixture = (subject, label, version, score, createdUtc = Date.UTC(2026, 8, 27, 12) / 1000) => ({subject, label, version, score,
   kind: 'comment', zone: 'us', text: `Quote ${score}`, link: 'https://reddit.com/comment',
-  thread_url: 'https://reddit.com/thread', thread_score: 10, sub: 'Coding', thread: 'Thread'});
+  thread_url: 'https://reddit.com/thread', thread_score: 10, sub: 'Coding', thread: 'Thread', created_utc: createdUtc});
 const data = [fixture('Rare', 'praise', 'Rare 1', 100),
-  ...Array.from({length: 20}, (_, i) => fixture('Popular', i < 12 ? 'praise' : i < 16 ? 'mixed' : 'complaint', i < 10 ? 'Popular 2' : null, i))];
+  ...Array.from({length: 20}, (_, i) => fixture('Popular', i < 12 ? 'praise' : i < 16 ? 'mixed' : 'complaint', i < 10 ? 'Popular 2' : null, i)),
+  fixture('Popular', 'no_opinion', null, 0, Date.UTC(2026, 8, 21, 12) / 1000),
+  fixture('Popular', 'no_opinion', null, 0, Date.UTC(2026, 7, 30, 12) / 1000)];
 ids['pulse-data'].textContent = JSON.stringify(data);
 const document = {getElementById: id => ids[id], createElement: tag => new Element(tag), documentElement: new Element('html'),
   querySelectorAll: () => walk(ids.zones).filter(n => n.tag === 'details')};
-vm.runInNewContext(fs.readFileSync(__dirname + '/pulse.js', 'utf8'), {document, URL, matchMedia: () => ({matches: false})});
+class FixedDate extends Date {
+  constructor(...args) { super(...(args.length ? args : [Date.UTC(2026, 8, 27, 12)])); }
+  static now() { return Date.UTC(2026, 8, 27, 12); }
+}
+vm.runInNewContext(fs.readFileSync(__dirname + '/pulse.js', 'utf8'), {document, URL, Date: FixedDate, matchMedia: () => ({matches: false})});
 assert.equal(document.querySelectorAll().length, 2);
+assert.equal(ids['range-7']['aria-pressed'], 'true', '7 days is the default range');
+assert.ok(ids['range-status'].textContent.includes('22 mentions'), 'Default range uses recent UTC dates');
 assert.ok(document.querySelectorAll().every(d => !d.open), 'Quick view starts collapsed');
 assert.ok(text(ids.zones).includes('Best right now: Popular'), 'Rare perfect sentiment cannot win pick');
 assert.ok(text(ids.zones).includes('Praise 60% · Mixed 20% · Complaint 20% · 20 opinions'));
@@ -34,6 +43,15 @@ assert.equal(document.querySelectorAll().length, 1, 'Rare version is selectable'
 assert.ok(document.querySelectorAll()[0].open);
 assert.ok(text(ids.zones).includes('1 opinions'));
 ids.clear.events.click();
+ids['range-today'].events.click();
+assert.equal(ids['range-status'].textContent.includes('21 mentions'), true, 'Today excludes older stored rows');
+assert.equal(ids['range-today']['aria-pressed'], 'true', 'Today range is selected');
+assert.equal(document.querySelectorAll().length, 2);
+ids['range-30'].events.click();
+assert.ok(ids['range-status'].textContent.includes('23 mentions'), '30 days includes month-old stored rows');
+assert.equal(ids['range-30']['aria-pressed'], 'true', '30 days range is selected');
+ids['range-7'].events.click();
+assert.equal(ids['range-7']['aria-pressed'], 'true', 'Returning to 7 days updates the selected control');
 ids.expand.checked = true; ids.expand.events.change();
 assert.ok(document.querySelectorAll().every(d => d.open));
 ids.expand.checked = false; ids.expand.events.change();

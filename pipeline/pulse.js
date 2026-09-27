@@ -1,17 +1,45 @@
 'use strict';
-const rows = JSON.parse(document.getElementById('pulse-data').textContent);
+const allRows = JSON.parse(document.getElementById('pulse-data').textContent);
 const zones = {us: '🇺🇸 US frontier', tool: '🛠 Coding tools', open: '🇨🇳 China + open models'};
-const families = [...new Set(rows.map(r => r.subject))].sort();
-const choices = families.flatMap(subject => [{subject, version: null},
-  ...[...new Set(rows.filter(r => r.subject === subject && r.version).map(r => r.version))]
-    .sort().map(version => ({subject, version}))]);
 let selected = null;
+let rangeDays = 7;
 const $ = id => document.getElementById(id);
+const rangeButtons = [[1, 'range-today'], [7, 'range-7'], [30, 'range-30']];
 function el(tag, text, cls) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
   if (cls) node.className = cls;
   return node;
+}
+function utcDate(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value > 1e12 ? value : value * 1000).toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const input = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+  const numeric = Number(input);
+  const timestamp = Number.isFinite(numeric) ? (numeric > 1e12 ? numeric : numeric * 1000) : Date.parse(input);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : null;
+}
+function rowsForRange() {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date(Date.parse(`${today}T00:00:00Z`) - (rangeDays - 1) * 86400000)
+    .toISOString().slice(0, 10);
+  const rows = allRows.filter(row => {
+    const date = utcDate(row.created_utc);
+    return date !== null && date >= start && date <= today;
+  });
+  const label = rangeDays === 1 ? 'Today' : `${rangeDays} days`;
+  $('range-status').textContent = `Showing ${rows.length} mentions from ${label} (UTC) through ${today}.`;
+  rangeButtons.forEach(([days, id]) => $(id).setAttribute('aria-pressed', String(days === rangeDays)));
+  return rows;
+}
+function familiesFor(rows) { return [...new Set(rows.map(r => r.subject))].sort(); }
+function choicesFor(rows, families) {
+  return families.flatMap(subject => [{subject, version: null},
+    ...[...new Set(rows.filter(r => r.subject === subject && r.version).map(r => r.version))]
+      .sort().map(version => ({subject, version}))]);
 }
 function stats(items) {
   const counts = ['praise', 'mixed', 'complaint'].map(label => items.filter(r => r.label === label).length);
@@ -80,6 +108,9 @@ function card(subject, items) {
 }
 function choose(choice) { selected = choice; $('search').value = ''; render(); }
 function render() {
+  const rows = rowsForRange();
+  const families = familiesFor(rows);
+  const choices = choicesFor(rows, families);
   const query = $('search').value.trim().toLowerCase();
   const matches = choices.filter(c => `${c.subject} ${c.version || ''}`.toLowerCase().includes(query));
   $('chips').replaceChildren();
@@ -108,14 +139,19 @@ function render() {
     $('zones').append(section);
   });
   if (!$('zones').children.length) $('zones').append(el('p', 'No matching models. Try another search.'));
+  $('buzz').replaceChildren();
+  families.map(subject => ({subject, count: rows.filter(r => r.subject === subject).length}))
+    .sort((a, b) => b.count - a.count).slice(0, 6).forEach(c => {
+      const button = el('button', `${c.subject} ${c.count}`);
+      button.addEventListener('click', () => choose({subject: c.subject, version: null})); $('buzz').append(button);
+    });
 }
-families.map(subject => ({subject, count: rows.filter(r => r.subject === subject).length}))
-  .sort((a, b) => b.count - a.count).slice(0, 6).forEach(c => {
-    const button = el('button', `${c.subject} ${c.count}`);
-    button.addEventListener('click', () => choose({subject: c.subject, version: null})); $('buzz').append(button);
-  });
 $('search').addEventListener('input', () => { selected = null; render(); });
 $('clear').addEventListener('click', () => { selected = null; $('search').value = ''; render(); });
+$('range-today').addEventListener('click', () => setRange(1));
+$('range-7').addEventListener('click', () => setRange(7));
+$('range-30').addEventListener('click', () => setRange(30));
+function setRange(days) { rangeDays = days; selected = null; $('search').value = ''; render(); }
 $('expand').addEventListener('change', () => document.querySelectorAll('.model').forEach(d => { d.open = $('expand').checked; }));
 $('theme').addEventListener('click', () => {
   const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' :

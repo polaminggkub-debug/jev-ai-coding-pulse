@@ -2,24 +2,25 @@
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
 try:
+    from . import store
     from .registry import mentions
     from .versions import extract_version
 except ImportError:
+    import store
     from registry import mentions
     from versions import extract_version
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-RAW_PATH = DATA / "raw.json"
-LABELED_PATH = DATA / "labeled.json"
-CACHE_PATH = DATA / "classify_cache.json"
-WORKERS = 12
-VALID_LABELS = {"praise", "complaint", "mixed", "no_opinion"}
+RAW_PATH = DATA / "incoming.json"
+MAX_CALLS = 8000
+VALID_LABELS = set(store.LABELS)
+# Bump this whenever Q changes: judgments are keyed by this question version.
+QUESTION_VERSION = "sentiment-v1"
 
 Q = {
     "type": "choice",
@@ -64,19 +65,21 @@ def jobs_from_raw(raw):
             thread_url = "https://www.reddit.com" + (post.get("permalink") or "")
             post_id = post.get("id")
             entries = [
-                ("post", post_id, (post.get("title") or "") + "\n" + (post.get("selftext") or ""), post.get("score"), thread_url)
+                ("post", post_id, (post.get("title") or "") + "\n" + (post.get("selftext") or ""), post.get("score"), thread_url, post.get("created_utc"))
             ]
             entries.extend(
-                ("comment", comment.get("id"), comment.get("body") or "", comment.get("score"), thread_url + str(comment.get("id") or "") + "/")
+                ("comment", comment.get("id"), comment.get("body") or "", comment.get("score"), thread_url + str(comment.get("id") or "") + "/", comment.get("created_utc"))
                 for comment in post.get("comments", [])
             )
-            for kind, raw_id, text, score, link in entries:
+            for kind, raw_id, text, score, link, created in entries:
                 for subject, zone in mentions(text):
                     comment_id = _pair_id(kind, raw_id, link)
                     if not comment_id:
                         continue
                     row = {
+                        "id": comment_id,
                         "comment_id": comment_id,
+                        "created_utc": created,
                         "sub": subreddit,
                         "kind": kind,
                         "text": text[:1500],
@@ -93,46 +96,6 @@ def jobs_from_raw(raw):
     return jobs
 
 
-def _key(comment_id, subject):
-    return f"{comment_id}\t{subject}"
-
-
-def _load_cache(cache_path, labeled_path):
-    """Load the durable cache and seed it from the original labeled file."""
-    cache = {}
-    if cache_path.exists():
-        try:
-            for row in json.loads(cache_path.read_text(encoding="utf-8")):
-                if not isinstance(row, dict):
-                    continue
-                key = _key(str(row.get("comment_id") or ""), row.get("subject") or "")
-                if key != "\t" and row.get("label") in VALID_LABELS:
-                    cache[key] = {"comment_id": row["comment_id"], "subject": row["subject"], "label": row.get("label"), "probs": row.get("probs")}
-        except (OSError, ValueError, TypeError):
-            cache = {}
-    if labeled_path.exists():
-        try:
-            labeled = json.loads(labeled_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            labeled = []
-        for row in labeled if isinstance(labeled, list) else []:
-            if not isinstance(row, dict):
-                continue
-            comment_id = str(row.get("comment_id") or _pair_id(row.get("kind", ""), "", row.get("link", "")))
-            subject = row.get("subject") or ""
-            key = _key(comment_id, subject)
-            if comment_id and subject and row.get("label") in VALID_LABELS and key not in cache:
-                cache[key] = {"comment_id": comment_id, "subject": subject, "label": row.get("label"), "probs": row.get("probs")}
-    return cache
-
-
-def _write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
-    temporary.replace(path)
-
-
 def _decide_function(decide_fn):
     if decide_fn is not None:
         return decide_fn
@@ -144,48 +107,58 @@ def _decide_function(decide_fn):
     return decide
 
 
-def classify(raw_path=RAW_PATH, labeled_path=LABELED_PATH, cache_path=CACHE_PATH, decide_fn=None):
-    """Refresh labeled metadata and judge only pairs missing from the cache."""
-    started = time.time()
+def classify(raw_path=RAW_PATH, data_dir=DATA, decide_fn=None, q=QUESTION_VERSION):
+    with store.run_lock(data_dir, 'classify'):
+        return _classify(raw_path, data_dir, decide_fn, q)
+
+
+def _classify(raw_path, data_dir, decide_fn, q):
+    """Persist each successful answer immediately; retry only absent answers."""
+    try:
+        from .migrate import migrate
+    except ImportError:
+        from migrate import migrate
+    migrate(data_dir)
     raw = json.loads(Path(raw_path).read_text(encoding="utf-8"))
     jobs = jobs_from_raw(raw)
-    cache = _load_cache(Path(cache_path), Path(labeled_path))
-    pending = [(key, row) for key, row in jobs.items() if _key(*key) not in cache]
-
-    if pending:
-        decide = _decide_function(decide_fn)
-
-        def run(item):
-            key, row = item
-            answer = decide({"subject": row["subject"], "text": row["text"]}, {"s": Q}).get("s", {})
-            label = answer.get("choice")
-            judgment = {"comment_id": key[0], "subject": key[1], "label": label, "probs": answer.get("probabilities")}
-            return key, judgment if label in VALID_LABELS else None
-
-        with ThreadPoolExecutor(WORKERS) as pool:
-            for key, judgment in pool.map(run, pending):
-                if judgment is not None:
-                    cache[_key(*key)] = judgment
-
-    output = []
+    index = store.judgment_index(data_dir)
+    created_dates = {(r['id'], r['subject']): r['created_utc'] for r in index.values()}
+    called = 0
+    decide = None
+    refreshed = []
     for key, row in jobs.items():
-        judgment = cache.get(_key(*key), {})
-        labeled = dict(row)
-        labeled["label"] = judgment.get("label")
-        labeled["probs"] = judgment.get("probs")
-        labeled["version"] = row["version"]
-        output.append(labeled)
-
-    _write_json(Path(cache_path), sorted(cache.values(), key=lambda row: (row["comment_id"], row["subject"])))
-    _write_json(Path(labeled_path), output)
-    failed = sum(1 for row in output if not row.get("label"))
-    print(f"{len(output)} mentions; {len(pending)} new judgments in {round(time.time() - started)}s; failed: {failed}")
-    return output
-
-
-def main():
-    classify()
+        judgment = index.get((*key, q))
+        if judgment is None:
+            if called >= MAX_CALLS:
+                continue
+            if decide is None:
+                decide = _decide_function(decide_fn)
+            called += 1
+            try:
+                answer = decide({"subject": row["subject"], "text": row["text"]}, {"s": Q}).get("s", {})
+            except Exception as error:
+                print(f"Decision failed for {key}: {type(error).__name__}")
+                continue
+            if answer.get("choice") not in VALID_LABELS:
+                continue
+            now = time.time()
+            row['created_utc'] = row.get('created_utc') or created_dates.get(key, now)
+            judgment = {"id": key[0], "kind": row['kind'], "subject": key[1], "q": q,
+                        "label": answer['choice'], "probs": answer.get('probabilities'),
+                        "created_utc": row['created_utc'], "judged_at": now}
+            # Save metadata before the irreversible append; a restart can recover it.
+            store.append_item(data_dir, row)
+            store.append_judgment(data_dir, judgment)
+            index[(*key, q)] = judgment
+        row['created_utc'] = judgment['created_utc']
+        refreshed.append(row)
+    store.update_items(data_dir, refreshed)
+    store.rebuild_daily(data_dir)
+    if called >= MAX_CALLS:
+        print(f"Hard cap reached: {MAX_CALLS} new Jev calls; remaining work deferred.")
+    print(f"{len(jobs)} mentions; {called} new Jev calls")
+    return store.load_mentions(data_dir)
 
 
 if __name__ == "__main__":
-    main()
+    classify()

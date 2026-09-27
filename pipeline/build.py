@@ -1,4 +1,4 @@
-"""Build an offline, self-contained Pulse page from the checked-in labels."""
+"""Build an offline, self-contained Pulse page from the durable store."""
 import datetime
 import json
 from pathlib import Path
@@ -9,24 +9,44 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS = Path(__file__).resolve().parent
 
 
-def load_mentions(path):
-    rows = json.loads(Path(path).read_text())
+def _prepare_mentions(rows):
+    """Keep one page row per mention and fill versions for legacy data."""
     seen = set()
     result = []
     for original in rows:
         row = dict(original)
-        key = (row.get('comment_id') or row['link'], row['subject'])
+        key = (row.get('comment_id') or row.get('id') or row.get('link'), row.get('subject'))
         if key in seen:
             continue
         seen.add(key)
         if 'version' not in row:
-            row['version'] = extract_version(row['subject'], row['text'], row['thread'])
+            row['version'] = extract_version(row.get('subject'), row.get('text'), row.get('thread'))
         result.append(row)
     return result
 
 
-def build(source=ROOT / 'data/labeled.json', output=ROOT / 'pulse.html'):
-    rows = load_mentions(source)
+def load_mentions(path):
+    """Read a legacy labels JSON file (kept for tests and local compatibility)."""
+    rows = json.loads(Path(path).read_text())
+    return _prepare_mentions(rows)
+
+
+def _load_store(data_dir):
+    try:
+        from . import store
+        from . import migrate
+    except ImportError:
+        import store
+        import migrate
+    migrate.migrate(data_dir)
+    store.rebuild_daily(data_dir)
+    return _prepare_mentions(store.load_mentions(data_dir))
+
+
+def build(source=None, output=ROOT / 'pulse.html'):
+    """Build from the durable data directory, or a legacy JSON file if supplied."""
+    source = ROOT / 'data' if source is None else Path(source)
+    rows = _load_store(source) if source.is_dir() else load_mentions(source)
     # Escape HTML delimiters so even hostile Reddit text cannot close the script.
     payload = json.dumps(rows, ensure_ascii=True).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
     css = (ASSETS / 'pulse.css').read_text()
@@ -38,6 +58,12 @@ def build(source=ROOT / 'data/labeled.json', output=ROOT / 'pulse.html'):
 <body><header><h1>Jev Reddit Pulse</h1><button id="theme" type="button">Toggle light/dark</button></header>
 <p class="sub">Coding sentiment from Reddit · {len(rows):,} mentions judged by Jev · static demo built {datetime.date.today()}</p>
 <p class="m">Opinion percentages exclude neutral mentions. Picks require at least 20 opinions and rank by praise minus complaint share. Reddit sentiment is not a benchmark.</p>
+<section aria-label="Choose a time range"><h2>Time range</h2>
+<div id="time-range" role="group" aria-label="Time range">
+<button id="range-today" type="button" aria-pressed="false">Today</button>
+<button id="range-7" type="button" aria-pressed="true">7 days</button>
+<button id="range-30" type="button" aria-pressed="false">30 days</button></div>
+<p id="range-status" class="m" role="status"></p></section>
 <section aria-label="Find a model"><label for="search">Search any family or version</label>
 <input id="search" type="search" placeholder="Try Opus, GPT-6, Qwen…" autocomplete="off">
 <div id="chips" aria-label="Model choices"></div><button id="clear" type="button">Show all models</button>
