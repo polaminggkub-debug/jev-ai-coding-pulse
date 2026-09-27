@@ -2,11 +2,13 @@
 import sys
 
 try:
+    from .devto_api import DevToAPI
     from .quality import comment_qualifies
     from .registry import R
     from .source_utils import api_url, attach_context, call_json, epoch, in_window, now_epoch, source_id, source_listing
     from .source_utils import get_json, plain_text
 except ImportError:
+    from devto_api import DevToAPI
     from quality import comment_qualifies
     from registry import R
     from source_utils import api_url, attach_context, call_json, epoch, in_window, now_epoch, source_id, source_listing
@@ -82,7 +84,8 @@ def _articles(tag, http_get, now):
 
 def fetch_devto(*, now=None, http_get=None):
     """Search AI plus every registered model family through Dev.to tags."""
-    now, http_get = now_epoch(now), get_json if http_get is None else http_get
+    now = now_epoch(now)
+    http_get = DevToAPI(get_json) if http_get is None else http_get
     articles = {}
     for tag in _tags():
         try:

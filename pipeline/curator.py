@@ -132,19 +132,24 @@ def _counts(rows):
 def _popular_comment(rows):
     comments = {}
     for row in rows:
-        if row.get("kind") != "comment" or not row.get("text"):
-            continue
-        comment = dict(row)
-        key = str(row.get("id") or row.get("link") or "")
-        if key not in comments or _comment_score(comment) > _comment_score(comments[key]):
-            comments[key] = comment
-    return max(comments.values(), key=lambda row: (_comment_score(row),
-               str(row.get("id") or "")), default=None)
+        if row.get("kind") == "comment":
+            _remember_comment(comments, row)
+        _remember_comment(comments, row.get("thread_top_comment"))
+    return max(comments.values(), key=_comment_key, default=None)
 
 
-def _comment_score(row):
-    score = _number(row.get("score"), -1)
-    return -1 if score is None else score
+def _remember_comment(comments, row):
+    if not isinstance(row, dict) or not row.get("text"):
+        return
+    comment = dict(row)
+    key = str(comment.get("id") or comment.get("link") or "")
+    if key and (key not in comments or _comment_key(comment) > _comment_key(comments[key])):
+        comments[key] = comment
+
+
+def _comment_key(row):
+    score = _number(row.get("score"))
+    return score is not None, score if score is not None else 0, str(row.get("id") or "")
 
 
 def _candidate(group, as_of):
