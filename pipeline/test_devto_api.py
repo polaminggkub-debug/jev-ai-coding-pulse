@@ -113,6 +113,27 @@ class DevToAPITests(unittest.TestCase):
             self.assertEqual(len(attempts), 1)
             self.assertEqual(clock.sleeps, [])
 
+    def test_terminal_429_suppresses_later_calls_after_retry_exhaustion_or_overcap(self):
+        scenarios = (
+            (30, 3, [30, 30]),
+            (61, 1, []),
+        )
+        for retry_after, expected_attempts, expected_sleeps in scenarios:
+            clock = Clock()
+            attempts = []
+
+            def fail(url):
+                attempts.append(url)
+                raise too_many_requests(url, retry_after)
+
+            client = DevToAPI(fail, clock=clock, sleep=clock.sleep)
+            with self.assertRaises(HTTPError):
+                client('/first')
+            with self.assertRaises(HTTPError):
+                client('/later')
+            self.assertEqual(len(attempts), expected_attempts)
+            self.assertEqual(clock.sleeps, expected_sleeps)
+
     def test_repeated_429_stops_after_two_retries_and_article_is_retained(self):
         clock = Clock()
         calls = []

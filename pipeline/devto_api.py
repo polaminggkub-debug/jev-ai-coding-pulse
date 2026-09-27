@@ -38,6 +38,7 @@ class DevToAPI:
         self.sleep = time.sleep if sleep is None else sleep
         self.spacing = spacing
         self.last_request = None
+        self.stopped_error = None
 
     def _space(self):
         now = self.clock()
@@ -48,16 +49,22 @@ class DevToAPI:
         self.last_request = self.clock()
 
     def __call__(self, url):
+        if self.stopped_error is not None:
+            raise self.stopped_error
         retries = 0
         while True:
             self._space()
             try:
                 return self.http_get(url)
             except HTTPError as error:
-                if error.code != 429 or retries >= MAX_RETRIES:
+                if error.code != 429:
+                    raise
+                if retries >= MAX_RETRIES:
+                    self.stopped_error = error
                     raise
                 delay = _retry_delay(error, self.clock())
                 if delay > MAX_RETRY_AFTER:
+                    self.stopped_error = error
                     raise
                 retries += 1
                 if delay:
