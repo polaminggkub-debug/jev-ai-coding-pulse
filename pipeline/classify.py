@@ -142,8 +142,21 @@ def _post_entries(post, source, community, now, apply_quality):
     metadata = {"source": source, "community": community, "title": title,
                 "thread_url": thread_url, "thread_score": post.get("score"),
                 "thread_comments": post.get("num_comments", len(post.get("comments", []))),
-                "thread_created_utc": created, "zone": "tool"}
+                "thread_created_utc": created, "zone": "tool",
+                "thread_top_comment": _thread_top_comment(entries, source)}
     return entries, metadata
+
+
+def _thread_top_comment(entries, source):
+    comments = [entry for entry in entries if entry[0] == "comment" and
+                _pair_id("comment", entry[1], entry[4], source)]
+    if not comments: return None
+    def score(entry):
+        try: return float(entry[3])
+        except (TypeError, ValueError, OverflowError): return float("-inf")
+    top = max(comments, key=lambda entry: (score(entry), str(entry[1] or "")))
+    return {"id": _pair_id("comment", top[1], top[4], source), "text": str(top[2] or "")[:400],
+            "score": top[3], "link": top[4]}
 
 
 def _add_entry_jobs(jobs, entries, metadata):
@@ -167,6 +180,7 @@ def _job_row(item_id, subject, zone, text, score, link, created, parent, entry, 
            "thread_comments": metadata["thread_comments"],
            "thread_created_utc": metadata["thread_created_utc"],
            "thread_url": metadata["thread_url"], "subject": subject, "zone": zone,
+           "thread_top_comment": metadata.get("thread_top_comment"),
            "version": extract_version(subject, text, thread_title=title)}
     return normalize_item(row, source, community)
 

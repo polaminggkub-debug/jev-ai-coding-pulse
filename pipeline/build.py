@@ -27,6 +27,8 @@ def _prepare_mentions(rows):
     result = []
     for original in rows:
         row = normalize_item(original)
+        # Curator-only thread context would be repeated for every ranking row.
+        row.pop('thread_top_comment', None)
         key = (row.get('comment_id') or row.get('id') or row.get('link'), row.get('subject'))
         if key in seen:
             continue
