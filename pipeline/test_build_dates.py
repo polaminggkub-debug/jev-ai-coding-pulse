@@ -23,7 +23,7 @@ class BuildDateTests(unittest.TestCase):
         self.assertEqual(payload('pulse-data')[0]['date'], '2026-09-08')
         self.assertEqual(payload('pulse-data')[0]['created_utc'], row['created_utc'])
         self.assertEqual(payload('pulse-meta')['days'], ['2026-09-08'])
-        self.assertLess(page.index('id="use-today"'), page.index('id="timeline"'))
+        self.assertNotIn('id="timeline"', page)
 
     def test_parent_then_judged_fallback_reaches_page(self):
         for parent, expected in [('2026-09-07T12:00:00Z', '2026-09-07'), (None, '2026-09-28')]:

@@ -14,6 +14,8 @@ P.zones = {us: '🇺🇸 US frontier', tool: '🛠 Coding tools', open: '🇨�
 P.rangeDays = 7;
 P.selected = null;
 P.query = '';
+P.sourceFilter = 'all';
+P.scoreMode = 'raw';
 P.latestDate = P.meta.endDate || '';
 P.dateOf = function(row) {
   for (const value of [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at, row.date]) {
@@ -63,7 +65,9 @@ P.rowsForRange = function() {
   const start = P.windowStart();
   return P.rows.filter(row => {
     const day = P.dateOf(row);
-    return day && day >= start && day <= P.endDate;
+    const source = row.source || 'reddit';
+    return day && day >= start && day <= P.endDate &&
+      (P.sourceFilter === 'all' || source === P.sourceFilter);
   });
 };
 P.stats = function(rows) {

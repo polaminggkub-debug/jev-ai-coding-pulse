@@ -5,21 +5,26 @@ from pathlib import Path
 try:
     from . import store
     from .classify import jobs_from_raw, _pair_id, QUESTION_VERSION
+    from .source_identity import prefixed_id
     from .versions import extract_version
     from .registry import R
 except ImportError:
     import store
     from classify import jobs_from_raw, _pair_id, QUESTION_VERSION
+    from source_identity import prefixed_id
     from versions import extract_version
     from registry import R
 
 
 def identity(row):
-    return (str(row.get('id') or row.get('comment_id') or
-                _pair_id(row.get('kind', 'comment'), '', row.get('link', ''))), row['subject'])
+    source = row.get('source') or 'reddit'
+    item_id = str(row.get('id') or row.get('comment_id') or
+                  _pair_id(row.get('kind', 'comment'), '', row.get('link', ''), source))
+    return (prefixed_id(source, item_id), row['subject'])
 
 
 def signature(row):
+    row = store.normalize_judgment(row)
     return (row['id'], row['subject'], row['q'], row['label'],
             json.dumps(row.get('probs'), sort_keys=True), store.timestamp(row['judged_at']))
 

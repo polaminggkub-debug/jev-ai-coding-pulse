@@ -6,6 +6,11 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 
+try:
+    from .source_identity import normalize_item, normalize_judgment
+except ImportError:
+    from source_identity import normalize_item, normalize_judgment
+
 LABELS = ("praise", "complaint", "mixed", "no_opinion")
 
 
@@ -69,6 +74,7 @@ def write_json(path, value):
 
 
 def append_judgment(root, row):
+    row = normalize_judgment(row)
     path = Path(root) / 'judgments' / (date(row['created_utc'])[:7] + '.jsonl')
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a', encoding='utf-8') as handle:
@@ -78,7 +84,7 @@ def append_judgment(root, row):
 
 
 def append_item(root, row, *, fallback=None):
-    item = {k: v for k, v in row.items() if k != 'comment_id'}
+    item = normalize_item({k: v for k, v in row.items() if k != 'comment_id'})
     item['text'] = (item.get('text') or '')[:400]
     created = resolved_created_utc(item) if fallback is None else resolved_created_utc(
         item, {'judged_at': fallback})
@@ -93,7 +99,17 @@ def append_item(root, row, *, fallback=None):
 
 
 def judgment_index(root):
-    return {(r['id'], r['subject'], r['q']): r for r in read_rows(Path(root) / 'judgments')}
+    items = {}
+    for row in read_rows(Path(root) / 'items'):
+        normalized = normalize_item(row)
+        items[(row.get('id'), row['subject'])] = normalized
+        items[(normalized['id'], normalized['subject'])] = normalized
+    index = {}
+    for row in read_rows(Path(root) / 'judgments'):
+        key = (row['id'], row['subject'])
+        judgment = normalize_judgment(row, items.get(key))
+        index[(judgment['id'], judgment['subject'], judgment['q'])] = judgment
+    return index
 
 
 def _created_source(item, judgment=None):
@@ -110,6 +126,9 @@ def _created_source(item, judgment=None):
                 if item.get('parent_created_utc') is not None or item.get('post_created_utc') is not None:
                     return 'parent'
                 return 'judged'
+            if (timestamp(created) == timestamp(judgment['created_utc'])
+                    and abs(timestamp(created) - timestamp(judgment['judged_at'])) <= 300):
+                return 'judged'
         return 'item'
     if item.get('parent_created_utc') is not None or item.get('post_created_utc') is not None:
         return 'parent'
@@ -119,6 +138,12 @@ def _created_source(item, judgment=None):
 def _merge_item(item, previous, judgment):
     """Refresh metadata without losing a known item date or retaining a fallback."""
     previous_source = _created_source(previous, judgment)
+    merged = dict(previous)
+    merged.update({key: value for key, value in item.items() if value is not None})
+    if item.get('created_utc') is None and previous_source == 'judged':
+        merged['created_utc'] = None
+    item.clear()
+    item.update(merged)
     if item.get('created_utc') is None and previous_source == 'item':
         item['created_utc'] = previous.get('created_utc')
     if item.get('parent_created_utc') is None:
@@ -136,17 +161,21 @@ def _merge_item(item, previous, judgment):
 
 def update_items(root, rows):
     directory = Path(root) / 'items'
-    items = {(r['id'], r['subject']): r for r in read_rows(directory)}
+    items = {}
+    raw_items = {}
+    for row in read_rows(directory):
+        normalized = normalize_item(row)
+        items[(normalized['id'], normalized['subject'])] = normalized
+        raw_items[(row.get('id'), row['subject'])] = normalized
     judgments = {}
     for judgment in read_rows(Path(root) / 'judgments'):
-        key = (judgment['id'], judgment['subject'])
-        if key not in judgments or timestamp(judgment['judged_at']) >= timestamp(judgments[key]['judged_at']):
-            judgments[key] = judgment
-    fields = ('id', 'kind', 'sub', 'score', 'link', 'thread', 'thread_score',
-              'thread_url', 'subject', 'zone', 'version', 'text', 'created_utc',
-              'parent_created_utc', 'post_created_utc', 'judged_at', 'created_utc_source')
+        raw_key = (judgment['id'], judgment['subject'])
+        normalized = normalize_judgment(judgment, raw_items.get(raw_key) or items.get(raw_key))
+        key = (normalized['id'], normalized['subject'])
+        if key not in judgments or timestamp(normalized['judged_at']) >= timestamp(judgments[key]['judged_at']):
+            judgments[key] = normalized
     for row in rows:
-        item = {field: row.get(field) for field in fields}
+        item = normalize_item({k: v for k, v in row.items() if k != 'comment_id'})
         item['text'] = (item['text'] or '')[:400]
         key = (item['id'], item['subject'])
         incoming_source = _created_source(item)
@@ -176,16 +205,22 @@ def update_items(root, rows):
 def load_mentions(root):
     """Latest answer per item/family, so question upgrades don't double counts."""
     latest = {}
-    for row in read_rows(Path(root) / 'judgments'):
-        key = (row['id'], row['subject'])
-        if key not in latest or timestamp(row['judged_at']) >= timestamp(latest[key]['judged_at']):
-            latest[key] = row
-    items = {(r['id'], r['subject']): r for r in read_rows(Path(root) / 'items')}
+    items = {}
+    raw_items = {}
+    for row in read_rows(Path(root) / 'items'):
+        normalized = normalize_item(row)
+        items[(normalized['id'], normalized['subject'])] = normalized
+        raw_items[(row.get('id'), row['subject'])] = normalized
+    for judgment in judgment_index(root).values():
+        key = (judgment['id'], judgment['subject'])
+        if key not in latest or timestamp(judgment['judged_at']) >= timestamp(latest[key]['judged_at']):
+            latest[key] = judgment
     result = []
     for key, judgment in latest.items():
         item = items.get(key, {})
         row = dict(item)
         row.update(judgment)
+        row = normalize_item(row)
         row['created_utc'] = resolved_created_utc(item, judgment)
         row['comment_id'] = row['id']
         result.append(row)
@@ -210,6 +245,7 @@ def rebuild_daily(root):
         day['opinions'].append({
             'id': row['id'], 'subject': row['subject'], 'version': row.get('version'),
             'label': row['label'], 'q': row.get('q'), 'probs': row.get('probs'),
+            'source': row.get('source', 'reddit'), 'community': row.get('community', row.get('sub', 'Reddit')),
             'created_utc': created,
         })
     directory = Path(root) / 'daily'

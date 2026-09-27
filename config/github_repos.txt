@@ -1,0 +1,10 @@
+# Free GitHub issue/comment sources (one owner/repo per line).
+anthropics/claude-code
+openai/codex
+sst/opencode
+google-gemini/gemini-cli
+QwenLM/qwen-code
+cline/cline
+Kilo-Org/kilocode
+Aider-AI/aider
+continuedev/continue

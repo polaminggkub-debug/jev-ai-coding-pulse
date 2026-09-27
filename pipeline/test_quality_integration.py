@@ -106,7 +106,7 @@ class QualityIntegrationTests(unittest.TestCase):
 
             self.assertEqual(len(decide.texts), 3)
             self.assertEqual({row["id"] for row in rows}, {
-                "recent-zero", "settled-positive", "settled-thread-comment",
+                "reddit:recent-zero", "reddit:settled-positive", "reddit:settled-thread-comment",
             })
             self.assertEqual(len(list(store.read_rows(data_dir / "judgments"))), 3)
 

@@ -36,11 +36,12 @@ U.trendQuoteNode = function(alert) {
   link.setAttribute('href', row.link);
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
+  if (U.sourceBadge) line.append(U.sourceBadge(row));
   line.append(link, U.el('span', `▲${row.score || 0}`, 'trend-comment-score muted'));
   return line;
 };
 U.renderTrends = function() {
-  U.trendAlerts = U.trendsFor(U.rows, U.endDate);
+  U.trendAlerts = U.trendsFor(U.filterSources ? U.filterSources(U.rows) : U.rows, U.endDate);
   const target = U.$('trend-alerts');
   if (!target) return U.trendAlerts;
   target.replaceChildren(U.el('h2', 'Trend alerts'));

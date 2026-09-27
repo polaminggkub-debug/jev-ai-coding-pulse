@@ -4,18 +4,21 @@ import json
 from pathlib import Path
 
 try:
-    from . import store, update_info
+    from . import store, update_info, reads
+    from .source_identity import normalize_item, normalize_judgment
     from .versions import extract_version
 except ImportError:
     import store
+    import reads
     import update_info
+    from source_identity import normalize_item, normalize_judgment
     from versions import extract_version
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = Path(__file__).resolve().parent
 LOGOS = ROOT / 'assets' / 'logos'
-SCRIPTS = ('pulse.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js',
-           'pulse-timeline-core.js', 'pulse-timeline.js')
+SCRIPTS = ('pulse.js', 'pulse-sources.js', 'pulse-community.js', 'pulse-trends.js',
+           'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js')
 
 
 def _prepare_mentions(rows):
@@ -23,7 +26,7 @@ def _prepare_mentions(rows):
     seen = set()
     result = []
     for original in rows:
-        row = dict(original)
+        row = normalize_item(original)
         key = (row.get('comment_id') or row.get('id') or row.get('link'), row.get('subject'))
         if key in seen:
             continue
@@ -63,8 +66,8 @@ def _daily_totals(opinions):
 
 def _read_history(root):
     """Join daily labels to items without reading judgments or refreshing data."""
-    items = {(row.get('id'), row.get('subject')): row
-             for row in store.read_rows(Path(root) / 'items')}
+    items = [normalize_item(row) for row in store.read_rows(Path(root) / 'items')]
+    item_by_key = {(row.get('id'), row.get('subject')): row for row in items}
     rows = []
     for path in sorted((Path(root) / 'daily').glob('*.json')):
         day = path.stem
@@ -80,19 +83,22 @@ def _read_history(root):
         if _daily_totals(opinions or []) != (summary.get('families', {}), summary.get('versions', {})):
             raise ValueError(f'{path} aggregates do not match its per-comment labels')
         for opinion in opinions or []:
+            normalized = normalize_judgment(opinion, item_by_key.get(
+                (normalize_item(opinion).get('id'), opinion.get('subject'))))
             try:
-                opinion_day = store.date(opinion.get('created_utc') or day)
+                opinion_day = store.date(normalized.get('created_utc') or day)
             except (TypeError, ValueError, OverflowError):
                 opinion_day = day
             if opinion_day != day:
                 raise ValueError(f'{path} contains an opinion with a mismatched UTC date')
-            item = items.get((opinion.get('id'), opinion.get('subject')))
+            item = item_by_key.get((normalized.get('id'), normalized.get('subject')))
             if item is None:
                 raise ValueError(f'{path} contains an opinion without a matching item')
             row = dict(item)
-            row.update(opinion)
-            row['version'] = opinion.get('version') or item.get('version')
-            row['created_utc'] = store.resolved_created_utc(item, dict(opinion, judged_at=opinion.get('judged_at') or day))
+            row.update(normalized)
+            row['version'] = normalized.get('version') or item.get('version')
+            row['created_utc'] = store.resolved_created_utc(
+                item, dict(normalized, judged_at=normalized.get('judged_at') or day))
             row['date'] = store.date(row['created_utc'])
             rows.append(row)
     prepared = _prepare_mentions(rows)
@@ -124,17 +130,17 @@ def _scripts():
 
 
 def _page(rows, meta, output):
-    css = (ASSETS / 'pulse.css').read_text(encoding='utf-8')
+    css = '\n'.join((ASSETS / name).read_text(encoding='utf-8')
+                    for name in ('pulse.css', 'pulse-sources.css'))
     body = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jev Reddit Pulse</title><style>{css}</style></head>
-<body><header><h1>Jev Reddit Pulse</h1><button id="theme" type="button">Toggle light/dark</button></header>
+<body><header><h1>Jev Reddit Pulse</h1><a href="reads.html">📚 Worth reading today</a><button id="theme" type="button">Toggle light/dark</button></header>
 <p id="update-info" class="m" role="status"></p>
 <p id="covered-period" class="m" role="status"></p>
 <section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
 <section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
-<section id="timeline" aria-label="Timeline"></section>
 <p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
 <section aria-label="Choose a time range"><h2>Time range</h2>
 <div id="time-range" role="group" aria-label="Time range">
@@ -146,7 +152,21 @@ def _page(rows, meta, output):
 <button id="date-next" type="button" aria-label="Later end date">▶</button>
 <button id="back-latest" type="button">Back to latest</button></div>
 <p id="range-status" class="m" role="status"></p><p id="history-note" class="m" role="status" hidden></p></section>
+<section aria-label="Data sources"><h2>Where the data comes from</h2>
+<label for="source-filter">Source filter</label><select id="source-filter" aria-label="Source filter">
+<option value="all">All sources</option><option value="reddit">Reddit</option><option value="hn">Hacker News</option>
+<option value="github">GitHub</option><option value="bluesky">Bluesky</option>
+<option value="devto">Dev.to</option><option value="lobsters">Lobsters</option></select>
+<div id="source-chart" aria-label="Opinions by source"></div>
+<h3>Top Reddit communities</h3><div id="reddit-communities"></div></section>
+<section aria-label="Community tastes"><h2>Community tastes</h2>
+<p class="m">Rows need 30 opinions; family columns need 20. Each cell shows its score and how it differs from that community’s average.</p>
+<div id="community-heatmap"></div></section>
 <section aria-label="Buzz versus love"><h2>Buzz vs love</h2><div id="chart"></div></section>
+<section aria-label="Score method"><h2>Score method</h2>
+<label for="score-mode">Ranking and chart score</label><select id="score-mode" aria-label="Ranking and chart score">
+<option value="raw">Raw score</option><option value="fair">Fair score</option></select>
+<p class="m">Fair score weights each family’s difference from its community’s average by cell size (minimum 10 opinions per community).</p></section>
 <section aria-label="Find a model"><label for="search">Search any family or version</label>
 <input id="search" type="search" placeholder="Try Opus, GPT-6, Qwen…" autocomplete="off">
 <div id="chips" aria-label="Model choices"></div><p id="selection" role="status"></p></section>
@@ -174,3 +194,4 @@ def build(source=None, output=ROOT / 'pulse.html'):
 
 if __name__ == '__main__':
     print(f'Built pulse.html from {build()} mentions (offline).')
+    print(f'Built reads.html with {reads.build()} curated threads (offline).')
