@@ -37,11 +37,10 @@ function checkInitial() {
   assert.equal(ids['range-7']['aria-pressed'], 'true');
   assert.match(text(ids['covered-period']), /27 Sep 2026/);
   assert.match(text(ids['update-info']), /Updated 27 Sep 19:00 \(Thai time\)/);
-  assert.match(text(ids['use-today']), /Claude Opus/);
-  assert.match(text(ids['use-today']), /mostly Opus 5.5/);
-  assert.match(text(ids['use-today']), /runner-up: Gemini Score \+0/);
+  assert.match(text(ids['use-today']), /Rare/);
+  assert.match(text(ids['use-today']), /runner-up: Claude Opus Score \+40/);
   assert.match(text(ids['use-today']), /Not enough talk yet/);
-  assert.match(text(ids['use-today']), /Quote 11/);
+  assert.match(text(ids['use-today']), /Quote 18/);
   assert.equal(ids.chips.children.length, 10, 'Only ten family chips');
   assert.ok(!text(ids.chips).includes('Opus 5.5'), 'Versions are not chips');
   assert.ok(models().every(d => !d.open), 'Models start collapsed');
@@ -99,10 +98,10 @@ function checkRankingMath() {
   assert.equal(otherDisplay.children[2].textContent, '👎 45% disliked');
   assertBar(otherDisplay.children[1], [2, 4, 5], 11);
   assert.equal(text(other.querySelector('.opinion-count')), "11 people's opinions");
-  const useCard = ids['use-today'].querySelectorAll('.use-card').find(n => text(n).includes('Claude Opus'));
+  const useCard = ids['use-today'].querySelectorAll('.use-card').find(n => text(n).includes('Rare'));
   assert.equal(text(useCard.querySelector('.use-score-label')), 'Score (liked − disliked)');
-  assert.equal(text(useCard.querySelector('.use-distribution')), '👍 57% · 👎 24%');
-  assert.equal(text(useCard.querySelector('.use-opinions')), "21 people's opinions");
+  assert.equal(text(useCard.querySelector('.use-distribution')), '👍 100% · 👎 0%');
+  assert.equal(text(useCard.querySelector('.use-opinions')), "19 people's opinions");
   const low = checkZeroOpinionAndEdges(us, usRanked);
   const versions = context.Pulse.versionRows(rows.filter(r => r.subject === 'Claude Opus'));
   assert.ok(!versions.some(v => v.name === 'Opus 4'), 'Two mentions must fold into Other');
@@ -190,7 +189,7 @@ function checkHistoryNote() {
 }
 function checkPeriods() {
   click('range-today');
-  assert.match(text(ids['use-today']), /\+40/);
+  assert.match(text(ids['use-today']), /\+100/);
   assert.match(text(ids['use-today']), /20 people's opinions/);
   click('date-prev');
   assert.equal(ids['date-end'].value, '2026-09-25', 'Skip missing 26 Sep');
@@ -206,7 +205,8 @@ function checkPeriods() {
   assert.equal(ids['date-end'].value, '2026-09-27');
   assert.equal(ids['date-next'].disabled, true);
   click('range-30');
-  assert.match(text(ids['use-today']), /Old champion/);
+  assert.doesNotMatch(text(ids['use-today']), /Old champion/,
+    'Use today uses its own 24h or seven-day fallback regardless of the selected rank range');
   click('range-7');
   const missing = ids['date-end'].children.find(n => n.value === '2026-09-26');
   assert.ok(missing?.disabled, 'No-data dates are disabled');

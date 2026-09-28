@@ -172,7 +172,7 @@ def _page(rows, meta, output):
 <section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
 <section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
 <p class="m">Score counts Reddit, HN, Dev.to, Lobsters. GitHub issues are shown under Sources.</p>
-<p class="m">Rankable families need 8 opinions for 24h, or 20 for 7/30 days. Reddit sentiment is not a benchmark.</p>
+<p class="m">24h view keeps the seven-day family ranking and shows a 24h score at eight opinions; other ranges rank families with 20 opinions. Reddit sentiment is not a benchmark.</p>
 {TIME_CONTROLS}
 <section aria-label="Buzz versus love"><h2>Buzz vs love</h2><div id="chart"></div></section>
 <section aria-label="Score method"><h2>Score method</h2>

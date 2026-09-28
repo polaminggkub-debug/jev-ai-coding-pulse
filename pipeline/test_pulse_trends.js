@@ -22,8 +22,8 @@ function checkDirection() {
   assert.equal(drop.quote.label, 'complaint'); assert.equal(drop.quote.score, 8);
 }
 function checkThresholds() {
-  assert.equal(trends([...opinions(20, 'praise', before), ...opinions(14, 'complaint', now),
-    ...opinions(100, 'no_opinion', now)]).length, 0, 'Neutral mentions cannot reach 15 opinions');
+  assert.equal(trends([...opinions(20, 'praise', '2026-09-19T12:00:00Z'), ...opinions(7, 'complaint', now),
+    ...opinions(100, 'no_opinion', now)]).length, 0, 'Fewer than eight opinions use the seven-day fallback');
   assert.equal(trends([...opinions(19, 'praise', before), ...opinions(15, 'complaint', now)]).length, 0);
   const exact = trends([...opinions(10, 'praise', before), ...opinions(10, 'mixed', before),
     ...opinions(7, 'praise', now), ...opinions(13, 'mixed', now)])[0];
@@ -42,8 +42,10 @@ function checkWindows() {
     ...opinions(50, 'mixed', '2026-09-28T00:00:00Z'),
     ...opinions(50, 'mixed', 'invalid', {date: '2026-09-27'})];
   const alert = trends(rows)[0];
-  assert.equal(alert.now.opinions, 15); assert.equal(alert.before.opinions, 21);
-  assert.equal(alert.delta, -200);
+  assert.equal(alert.period, '24h');
+  assert.equal(alert.now.opinions, 65, 'The selected rolling 24h start is inclusive');
+  assert.equal(alert.before.opinions, 21, 'The previous seven-day baseline excludes the current window');
+  assert.ok(Math.abs(alert.delta - (-123.07692307692308)) < 1e-9);
   const stamp = Date.parse('2026-09-26T00:00:00Z');
   for (const value of [stamp, stamp / 1000, String(stamp / 1000), '2026-09-26T07:00:00+07:00']) {
     assert.equal(context.Pulse.trendTimestamp(value), stamp);

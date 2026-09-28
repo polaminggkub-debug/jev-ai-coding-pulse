@@ -7,7 +7,8 @@ R.modelsFor = function(rows) {
   });
 };
 R.rankingMinimum = () => R.rangeDays === 1 ? 8 : 20;
-R.rankable = model => model.stats.opinions >= R.rankingMinimum() && (R.scoreMode !== 'fair' || model.fairNet !== null);
+R.rankable = (model, minimum = R.rankingMinimum()) =>
+  model.stats.opinions >= minimum && (R.scoreMode !== 'fair' || model.fairNet !== null);
 R.compareModels = (a, b) => b.stats.net - a.stats.net ||
   b.stats.opinions - a.stats.opinions || a.subject.localeCompare(b.subject);
 R.shares = function(stats) {
@@ -46,6 +47,31 @@ R.scorePill = function(net, mode = R.scoreMode) {
   const score = R.el('span', net === null ? 'Fair score unavailable' : `Score ${R.netText(net)}`, `score-pill ${net < 0 ? 'negative' : 'positive'}`);
   score.setAttribute('title', mode === 'fair' ? 'Fair score = weighted difference from community baselines' : 'Score = liked % − disliked %');
   return score;
+};
+R.todayScoreCell = function(model) {
+  const cell = R.el('span', undefined, 'rank-24h');
+  const today = model.todayStats || {opinions: 0, net: 0};
+  cell.append(R.el('span', '24h', 'rank-24h-label'));
+  if (today.opinions < 8) {
+    const unavailable = R.el('span', '—', 'rank-24h-value muted');
+    unavailable.setAttribute('title', 'fewer than 8 opinions in 24h');
+    cell.append(unavailable);
+    return cell;
+  }
+  if (today.net === null || model.stats.net === null) {
+    const unavailable = R.el('span', 'Fair score unavailable', 'rank-24h-value muted');
+    unavailable.setAttribute('title', 'Fair score unavailable for this comparison');
+    cell.append(unavailable);
+    return cell;
+  }
+  const value = R.el('span', `Score ${R.netText(today.net)}`, 'rank-24h-value');
+  const difference = Math.round(today.net - model.stats.net);
+  const change = difference > 0 ? `▲${difference}` : difference < 0 ? `▼${Math.abs(difference)}` : '=0';
+  const delta = R.el('span', change, 'rank-24h-delta');
+  delta.setAttribute('title', `24h score ${R.netText(today.net)} vs 7d ${R.netText(model.stats.net)}`);
+  cell.setAttribute('aria-label', `24h Score ${R.netText(today.net)}, ${today.opinions} opinions, ${change} versus 7d`);
+  cell.append(value, delta);
+  return cell;
 };
 R.quote = function(items, label) {
   const best = items.filter(row => row.kind === 'comment' && row.label === label)
@@ -111,8 +137,9 @@ R.rankRow = function(model, open) {
   identity.append(R.logo(model.subject), R.el('span', model.subject, 'model-name'));
   const trend = R.trendArrow(model.subject, null);
   if (trend) identity.append(trend);
-  summary.append(identity, R.scorePill(model.stats.net),
-    R.el('span', `${model.stats.opinions} people's opinions`, 'opinion-count'),
+  summary.append(identity, R.scorePill(model.stats.net));
+  if (R.rangeDays === 1) summary.append(R.todayScoreCell(model));
+  summary.append(R.el('span', `${model.stats.opinions} people's opinions`, 'opinion-count'),
     R.opinionDisplay(model.stats));
   row.append(summary, R.detail(model));
   return row;
@@ -124,11 +151,23 @@ R.matches = function(model) {
   return model.subject.toLowerCase().includes(q) || model.items.some(item => (item.version || '').toLowerCase().includes(q));
 };
 R.matchVersion = model => R.query && model.items.some(item => (item.version || '').toLowerCase().includes(R.query.toLowerCase()));
-R.renderUseToday = function(models) {
+R.todayChoice = function(today, week) {
+  const fairAvailable = model => model && (R.scoreMode !== 'fair' || model.fairNet !== null);
+  if (today && today.stats.opinions >= 8 && fairAvailable(today)) return {...today, period: '24h'};
+  if (week && week.stats.opinions >= 20 && fairAvailable(week)) return {...week, period: '7d'};
+  return null;
+};
+R.compareTodayChoices = (a, b) => b.stats.net - a.stats.net ||
+  b.stats.opinions - a.stats.opinions || a.subject.localeCompare(b.subject);
+R.renderUseToday = function(weekModels, todayModels) {
   const target = R.$('use-today');
   target.replaceChildren(R.el('h2', 'Use today', 'strip-title'));
+  const weeks = new Map(weekModels.map(model => [model.subject, model]));
+  const todays = new Map(todayModels.map(model => [model.subject, model]));
+  const subjects = new Set([...weeks.keys(), ...todays.keys()]);
+  const picks = [...subjects].map(subject => R.todayChoice(todays.get(subject), weeks.get(subject))).filter(Boolean);
   Object.entries(R.zones).forEach(([zone, title]) => {
-    const ranked = models.filter(model => model.zone === zone && R.rankable(model)).sort(R.compareModels);
+    const ranked = picks.filter(model => model.zone === zone).sort(R.compareTodayChoices);
     const card = R.el('article', undefined, 'use-card');
     card.append(R.el('h2', title));
     if (!ranked.length) card.append(R.el('p', 'Not enough talk yet', 'empty-pick'));
@@ -143,13 +182,15 @@ R.renderUseToday = function(models) {
       const shares = R.shares(best.stats);
       const score = R.el('div', undefined, 'use-score-block');
       const detail = R.el('div', undefined, 'use-score-detail');
-      detail.append(R.el('span', R.scoreMode === 'fair' ? 'Fair score (vs community average)' : 'Score (liked − disliked)', 'use-score-label'),
+      const scoreLabel = R.scoreMode === 'fair' ? 'Fair score (vs community average)' : 'Score (liked − disliked)';
+      detail.append(R.el('span', `${scoreLabel}${best.period === '7d' ? ' (7d)' : ''}`, 'use-score-label'),
         R.el('span', `👍 ${R.percentText(shares.liked)} · 👎 ${R.percentText(shares.disliked)}`, 'use-distribution'));
       score.append(R.el('strong', R.netText(best.stats.net), `use-net ${best.stats.net < 0 ? 'negative' : 'positive'}`), detail);
       card.append(score, R.el('p', `${best.stats.opinions} people's opinions`, 'use-opinions'), R.quote(best.items, 'praise'));
     }
     const runner = ranked[1];
-    card.append(R.el('p', runner ? `runner-up: ${runner.subject} Score ${R.netText(runner.stats.net)}` : 'runner-up: none yet', 'runner-up'));
+    const runnerPeriod = runner && runner.period === '7d' ? ' (7d)' : '';
+    card.append(R.el('p', runner ? `runner-up: ${runner.subject} Score ${R.netText(runner.stats.net)}${runnerPeriod}` : 'runner-up: none yet', 'runner-up'));
     target.append(card);
   });
 };
@@ -170,7 +211,7 @@ R.renderChips = function(models) {
     target.append(button);
   });
 };
-R.renderZones = function(models) {
+R.renderZones = function(models, minimum = R.rankingMinimum()) {
   const target = R.$('zones');
   target.replaceChildren();
   target.append(R.el('p', '👍 liked · mixed · 👎 disliked — share of opinions about each model for coding. ' + (R.scoreMode === 'fair' ? 'Fair score = difference from community baselines.' : 'Score = liked − disliked.'), 'ranking-legend legend'));
@@ -179,8 +220,8 @@ R.renderZones = function(models) {
     section.append(R.el('h2', title));
     const current = models.filter(model => model.zone === zone);
     const visible = current.filter(R.matches);
-    const ranked = visible.filter(model => R.rankable(model)).sort(R.compareModels);
-    const low = visible.filter(model => !R.rankable(model)).sort((a, b) => b.stats.mentions - a.stats.mentions);
+    const ranked = visible.filter(model => R.rankable(model, minimum)).sort(R.compareModels);
+    const low = visible.filter(model => !R.rankable(model, minimum)).sort((a, b) => b.stats.mentions - a.stats.mentions);
     if (ranked.length) ranked.forEach(model => section.append(R.rankRow(model, R.matchVersion(model))));
     if (low.length) {
       const group = R.el('details', undefined, 'low-data');
@@ -195,11 +236,25 @@ R.renderZones = function(models) {
 };
 R.renderRanking = function() {
   const rows = R.rowsForRange();
-  const models = R.modelsFor(rows);
-  if (R.applyFairScores) R.applyFairScores(models, rows);
-  R.renderUseToday(models);
+  const todayRows = R.rowsForRange(1);
+  const weekRows = R.rowsForRange(7);
+  const rankingRows = R.rangeDays === 1 ? weekRows : rows;
+  const models = R.modelsFor(rankingRows);
+  const weekModels = R.rangeDays === 7 ? models : R.modelsFor(weekRows);
+  const todayModels = R.modelsFor(todayRows);
+  if (R.applyFairScores) {
+    R.applyFairScores(models, rankingRows);
+    if (weekModels !== models) R.applyFairScores(weekModels, weekRows);
+    R.applyFairScores(todayModels, todayRows);
+  }
+  if (R.rangeDays === 1) {
+    const bySubject = new Map(todayModels.map(model => [model.subject, model.stats]));
+    models.forEach(model => { model.todayStats = bySubject.get(model.subject) || {opinions: 0, net: 0}; });
+  }
+  R.chartModels = R.rangeDays === 1 ? todayModels : models;
+  R.renderUseToday(weekModels, todayModels);
   R.renderChips(models);
-  R.renderZones(models);
+  R.renderZones(models, R.rangeDays === 1 ? 20 : R.rankingMinimum());
   R.$('selection').textContent = R.selected ? `Showing ${R.selected}` : R.query ? `${models.filter(R.matches).length} matching families or versions` : '';
   return models;
 };

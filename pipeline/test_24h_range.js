@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {harness, text} = require('./ui_harness');
-const scripts = ['pulse.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js'];
+const scripts = ['pulse.js', 'pulse-sources.js', 'pulse-community.js', 'pulse-trends.js', 'pulse-trend-ui.js', 'pulse-rank.js', 'pulse-chart.js'];
 const DAY = 86400000;
 function row(id, subject, label, zone, created_utc) {
   return {id, subject, label, zone, kind: 'comment', created_utc, score: 1,
@@ -12,6 +12,10 @@ function row(id, subject, label, zone, created_utc) {
 function click(h, id) { h.ids[id].events.click({preventDefault() {}}); }
 function familyNames(section) {
   return section.children.filter(n => n.className === 'rank-model').map(n =>
+    n.children[0].querySelector('.model-name').textContent);
+}
+function allFamilyNames(section) {
+  return section.querySelectorAll('.rank-model').map(n =>
     n.children[0].querySelector('.model-name').textContent);
 }
 function zone(h, code) {
@@ -116,17 +120,27 @@ function testSevenAndThirtyDayThresholds(h) {
 
 function test24HourThresholdAndChart(h) {
   const P = h.context.Pulse;
+  click(h, 'range-7');
+  const usSevenDayRows = allFamilyNames(zone(h, 'us'));
   click(h, 'range-today');
-  assert.equal(P.rankingMinimum(), 8, '24h rankings lower the minimum to eight opinions');
+  assert.equal(P.rankingMinimum(), 8, 'The 24h chart keeps its eight-opinion minimum');
   assert.equal(h.ids['range-opinions'].textContent, '64 opinions in this range');
   const usToday = zone(h, 'us');
-  assert.ok(familyNames(usToday).includes('Eight'), 'Eight opinions qualify in 24h');
-  assert.ok(familyNames(usToday).includes('Nineteen'));
-  assert.ok(familyNames(usToday).includes('Twenty'));
-  assert.ok(!familyNames(usToday).includes('Seven'), 'Seven opinions remain below the 24h minimum');
+  assert.deepEqual(allFamilyNames(usToday), usSevenDayRows,
+    '24h ranking retains the complete seven-day family row list and order');
+  assert.deepEqual(familyNames(usToday), ['Twenty'], 'The ranked list keeps the 7d minimum');
   assert.equal(lowGroup(usToday).open, false);
-  assert.equal(lowGroup(usToday).children[0].textContent, 'Not enough data yet (1)');
+  assert.equal(lowGroup(usToday).children[0].textContent, 'Not enough data yet (4)');
+  assert.match(text(lowGroup(usToday)), /Eight/);
   assert.match(text(lowGroup(usToday)), /Seven/);
+  const todayCell = usToday.querySelector('.rank-24h');
+  assert.equal(todayCell.querySelector('.rank-24h-value').textContent, 'Score +100');
+  assert.equal(todayCell.querySelector('.rank-24h-delta').textContent, '=0');
+  const sparseCell = usToday.querySelectorAll('.rank-model').find(item =>
+    item.querySelector('.model-name').textContent === 'Seven').querySelector('.rank-24h');
+  assert.equal(sparseCell.querySelector('.rank-24h-value').textContent, '—');
+  assert.equal(sparseCell.querySelector('.rank-24h-value').getAttribute('title'),
+    'fewer than 8 opinions in 24h');
   assert.equal(lowGroup(zone(h, 'tool')).children[0].textContent, 'Not enough data yet (1)');
   assert.equal(lowGroup(zone(h, 'open')).children[0].textContent, 'Not enough data yet (2)');
   const points24h = h.ids.chart.querySelectorAll('.point').map(point => point.getAttribute('aria-label'));
@@ -137,9 +151,55 @@ function test24HourThresholdAndChart(h) {
   assert.ok(pointX >= 64, 'The eight-opinion point stays on or inside the 24h chart minimum');
 }
 
+function testTodayUses24HourOrSevenDayFallback() {
+  const rows = [
+    ...opinions('Fresh', 12, 'us', '2026-09-27').map(item => ({...item, label: 'praise'})),
+    ...opinions('Fresh', 8, 'us', '2026-09-25').map(item => ({...item, label: 'complaint'})),
+    ...opinions('Deteriorating', 8, 'us', '2026-09-27').map(item => ({...item, label: 'complaint'})),
+    ...opinions('Deteriorating', 12, 'us', '2026-09-25').map(item => ({...item, label: 'praise'})),
+    ...opinions('Sparse tool', 7, 'tool', '2026-09-27').map(item => ({...item, label: 'praise'})),
+    ...opinions('Sparse tool', 13, 'tool', '2026-09-25').map(item => ({...item, label: 'complaint'}))
+  ];
+  const h = harness(rows, {days: ['2026-09-25', '2026-09-27'],
+    startDate: '2026-09-20', endDate: '2026-09-27'});
+  h.run(scripts);
+  click(h, 'range-today');
+  const fresh = h.ids.zones.querySelectorAll('.rank-model').find(item =>
+    item.querySelector('.model-name').textContent === 'Fresh').querySelector('.rank-24h');
+  assert.equal(fresh.querySelector('.rank-24h-label').textContent, '24h');
+  assert.equal(fresh.querySelector('.rank-24h-value').textContent, 'Score +100');
+  assert.equal(fresh.querySelector('.rank-24h-delta').textContent, '▲80');
+  const deteriorating = h.ids.zones.querySelectorAll('.rank-model').find(item =>
+    item.querySelector('.model-name').textContent === 'Deteriorating').querySelector('.rank-24h');
+  assert.equal(deteriorating.querySelector('.rank-24h-delta').textContent, '▼120');
+  const cards = h.ids['use-today'].querySelectorAll('.use-card');
+  assert.match(text(cards[0]), /Fresh/);
+  assert.match(text(cards[0]), /12 people's opinions/);
+  assert.match(text(cards[1]), /Sparse tool/);
+  assert.match(text(cards[1]), /\(7d\)/, 'Use today labels its seven-day fallback');
+  assert.equal(cards[1].querySelector('.use-net').textContent, '−30',
+    'Use today shows the seven-day score when recent opinion count is below eight');
+  assert.match(text(cards[1]), /20 people's opinions/);
+}
+
+function testFairScoreDoesNotInventDailyComparison() {
+  const rows = opinions('Fair sparse', 8, 'us', '2026-09-27');
+  const h = harness(rows, {days: ['2026-09-27'], startDate: '2026-09-27', endDate: '2026-09-27'});
+  h.run(scripts);
+  h.context.Pulse.scoreMode = 'fair';
+  h.context.Pulse.render();
+  click(h, 'range-today');
+  const cell = h.ids.zones.querySelector('.rank-24h');
+  assert.equal(cell.querySelector('.rank-24h-value').textContent, 'Fair score unavailable');
+  assert.equal(cell.querySelector('.rank-24h-delta'), null,
+    'A fair score with no qualifying community baseline has no fabricated delta');
+}
+
 testRangeButtonLabel();
 testRollingWindowAndHistoricalEnd();
 const h = thresholdHarness();
 testSevenAndThirtyDayThresholds(h);
 test24HourThresholdAndChart(h);
+testTodayUses24HourOrSevenDayFallback();
+testFairScoreDoesNotInventDailyComparison();
 console.log('24h range and ranking regression checks passed.');

@@ -136,8 +136,8 @@ main, #zones { width: 100%; max-width: 100%; min-width: 0; }
 .zone-section h2 { margin-bottom: 4px; }
 .rank-model, .low-data { border-top: 1px solid var(--line); }
 .rank-model > summary {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-areas: "identity score count" "share share share"; align-items: center; gap: 8px 12px; padding: 12px 3px 12px 22px;
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas: "identity score today count" "share share share share"; align-items: center; gap: 8px 12px; padding: 12px 3px 12px 22px;
   cursor: pointer; list-style: none;
 }
 .rank-model > summary::marker { content: ""; }
@@ -147,6 +147,10 @@ main, #zones { width: 100%; max-width: 100%; min-width: 0; }
 .rank-identity { grid-area: identity; display: inline-flex; min-width: 0; align-items: center; gap: 9px; font-weight: 600; }
 .model-name { min-width: 0; overflow-wrap: anywhere; }
 .rank-model > summary > .score-pill { grid-area: score; }
+.rank-24h { grid-area: today; display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rank-24h-label { color: var(--mut); font-size: 10px; }
+.rank-24h-delta { color: var(--mut); font-size: 10px; }
+.rank-model > summary > .rank-24h-value.muted { color: var(--mut); }
 .rank-model > summary > .opinion-count { grid-area: count; }
 .rank-model > summary > .opinion-display { grid-area: share; }
 .score-pill { display: inline-flex; width: max-content; min-width: 0; align-items: center; justify-content: center; padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1.45; white-space: nowrap; }
@@ -187,7 +191,7 @@ a { color: inherit; }
   body { padding: 16px 10px; }
   h1 { font-size: 25px; }
   section { margin: 10px 0; padding: 12px; }
-  .rank-model > summary { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "identity score" "share share" "count count"; gap: 8px; }
+  .rank-model > summary { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "identity score" "today count" "share share"; gap: 8px; }
   .rank-model > summary > .opinion-count { text-align: left; }
   .opinion-display { grid-template-columns: max-content minmax(25px, 1fr) max-content; gap: 5px; }
   .opinion-display > span:not(.opinion-bar) { font-size: 10px; }

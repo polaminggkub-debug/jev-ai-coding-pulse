@@ -129,6 +129,11 @@ named constants and tested with offline fixtures.
 The collection job also reads Hacker News, GitHub issues and comments, Bluesky,
 Dev.to, and Lobsters through free endpoints. GitHub repositories are configured
 in `config/github_repos.txt`; the scheduled workflow supplies its GitHub token.
+Each run fetches at most five issues per repository and ten comments per issue.
+Issues must mention a registry name in their title or body before comments are
+fetched. GitHub classification has a separate 300-call budget per run, including
+failed attempts; existing judgments remain cached. Collection and classification
+log their counts.
 Bluesky is skipped with a reason if its public search is unavailable or requires
 authentication. A failed source does not discard successful sources. Collection
 snapshots are inputs to the same quality, classification, and durable store path
@@ -167,3 +172,8 @@ rankings, recommendations, alerts, and buzz scores. Main scores count Reddit, HN
 Dev.to, and Lobsters. For a code-only publication, manually run the Pages workflow
 with `refresh_data` disabled to build from saved data without fetching or classifying.
 Version details retain raw sentiment scores when family ranking uses Fair scores.
+
+The 24h ranking keeps the same families and seven-day ordering as 7d. Each row
+adds a 24h score and direction versus 7d when it has at least eight opinions;
+otherwise it shows a muted dash. Use today and alerts use 24h data when there
+are at least eight opinions, falling back to seven days with a `(7d)` label.

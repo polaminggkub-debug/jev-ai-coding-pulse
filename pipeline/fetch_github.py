@@ -2,13 +2,14 @@
 import os
 from pathlib import Path
 import sys
-from urllib.parse import urlsplit
 
 try:
     from .github_api import BudgetExhausted, GitHubAPI
+    from .registry import mentions
     from .source_utils import api_url, epoch, get_json, in_window, iso_utc, now_epoch, source_listing
 except ImportError:
     from github_api import BudgetExhausted, GitHubAPI
+    from registry import mentions
     from source_utils import api_url, epoch, get_json, in_window, iso_utc, now_epoch, source_listing
 
 REPOS_PATH = Path(__file__).resolve().parents[1] / 'config' / 'github_repos.txt'
@@ -20,6 +21,8 @@ REPO_TOOLS = {
     'continuedev/continue': 'Continue',
 }
 BASE = 'https://api.github.com/repos'
+MAX_ISSUES_PER_REPO = 5
+MAX_COMMENTS_PER_ISSUE = 10
 
 
 def _repos(path):
@@ -31,25 +34,6 @@ def _bot(row):
     user = row.get('user') or {}
     name = str(user.get('login') or '').casefold()
     return user.get('type') == 'Bot' or name.endswith('[bot]') or name == 'automoderator'
-
-
-def _pages(url, api, **params):
-    seen = set()
-    page = 1
-    while True:
-        try:
-            rows = api.get(api_url(url, per_page=100, page=page, **params))
-        except BudgetExhausted:
-            break
-        if not isinstance(rows, list):
-            raise ValueError('GitHub listing was not a list')
-        fresh = [row for row in rows if row.get('id') not in seen]
-        for row in fresh:
-            seen.add(row.get('id'))
-            yield row
-        if len(rows) < 100 or not fresh:
-            break
-        page += 1
 
 
 def _subjects(repo):
@@ -77,37 +61,60 @@ def _issue(row, repo, now, comments):
                 implicit_subjects=_subjects(repo), context_only=not recent)
 
 
-def _issue_number(comment):
-    path = urlsplit(str(comment.get('issue_url') or '')).path.rstrip('/')
-    try:
-        return int(path.rsplit('/', 1)[-1])
-    except (TypeError, ValueError):
-        return None
+def _matches_registry(row):
+    text = f"{row.get('title') or ''}\n{row.get('body') or ''}"
+    return bool(mentions(text))
 
 
-def _recent_comments(repo, now, api):
-    url = f'{BASE}/{repo}/issues/comments'
-    comments = {}
+def _recent_comments(repo, number, now, api):
+    url = f'{BASE}/{repo}/issues/{number}/comments'
     try:
-        rows = _pages(url, api, since=iso_utc(now - 5 * 86400))
-        for row in rows:
-            number = _issue_number(row)
-            if number is None or _bot(row) or not in_window(row.get('created_at'), now):
-                continue
-            comments.setdefault(number, []).append(_comment(row, repo))
+        rows = api.get(api_url(url, per_page=MAX_COMMENTS_PER_ISSUE, page=1,
+                              since=iso_utc(now - 5 * 86400)))
+        if not isinstance(rows, list):
+            raise ValueError('GitHub comments listing was not a list')
+        rows = rows[:MAX_COMMENTS_PER_ISSUE]
+        comments = [_comment(row, repo) for row in rows
+                    if not _bot(row) and in_window(row.get('created_at'), now)]
+        return comments, len(rows), len(comments)
     except Exception as error:
-        print(f'GitHub comments partial in {repo}: {type(error).__name__}', file=sys.stderr)
-    return comments
+        print(f'GitHub comments partial in {repo}#{number}: {type(error).__name__}', file=sys.stderr)
+        return [], 0, 0
+
+
+def _latest_issues(repo, now, api):
+    url = f'{BASE}/{repo}/issues'
+    rows = api.get(api_url(url, per_page=MAX_ISSUES_PER_REPO, page=1, state='all',
+                          sort='updated', direction='desc', since=iso_utc(now - 5 * 86400)))
+    if not isinstance(rows, list):
+        raise ValueError('GitHub listing was not a list')
+    return rows[:MAX_ISSUES_PER_REPO]
+
+
+def _can_request(api):
+    return not api.stopped and api.calls < api.max_calls and api.remaining > api.reserve
 
 
 def _fetch_repo(repo, now, api):
-    rows = _pages(f'{BASE}/{repo}/issues', api, state='all',
-                  sort='updated', direction='desc', since=iso_utc(now - 5 * 86400))
-    issues = [row for row in rows if not _bot(row) and 'pull_request' not in row]
-    comments = _recent_comments(repo, now, api) if issues else {}
-    posts = [post for row in issues
-             if (post := _issue(row, repo, now, comments.get(row.get('number'), []))) is not None]
-    return source_listing('github', repo, posts)
+    rows = _latest_issues(repo, now, api)
+    eligible = [row for row in rows if not _bot(row) and 'pull_request' not in row]
+    issues = [row for row in eligible if _matches_registry(row)]
+    stats = {'issues_fetched': len(rows), 'registry_matches': len(issues),
+             'irrelevant_skipped': len(eligible) - len(issues), 'issues_kept': 0,
+             'comments_fetched': 0, 'comments_kept': 0}
+    posts = []
+    for row in issues:
+        comments = []
+        fetched = kept = 0
+        if _can_request(api):
+            comments, fetched, kept = _recent_comments(repo, row.get('number'), now, api)
+        stats['comments_fetched'] += fetched
+        stats['comments_kept'] += kept
+        post = _issue(row, repo, now, comments)
+        if post is not None:
+            posts.append(post)
+    stats['issues_kept'] = len(posts)
+    return source_listing('github', repo, posts), stats
 
 
 def _budget_reason(api):
@@ -134,17 +141,24 @@ def fetch_github(*, now=None, http_get=None, token=None, repos=None, repos_path=
     repo_names = _repos(repos_path) if repos is None else list(dict.fromkeys(repos))
     output = []
     attempted = 0
+    totals = {'issues_fetched': 0, 'registry_matches': 0, 'irrelevant_skipped': 0,
+              'issues_kept': 0, 'comments_fetched': 0, 'comments_kept': 0}
     for repo in repo_names:
-        if api.stopped or api.calls >= api.max_calls or api.remaining <= api.reserve:
+        if not _can_request(api):
             break
         attempted += 1
         try:
-            output.append(_fetch_repo(repo, now, api))
+            listing, stats = _fetch_repo(repo, now, api)
+            output.append(listing)
+            for name, value in stats.items():
+                totals[name] += value
         except Exception as error:
             print(f'GitHub repository skipped {repo}: {type(error).__name__}', file=sys.stderr)
-    print(f'GitHub collection: repositories={attempted}/{len(repo_names)} api_calls={api.calls}',
-          file=sys.stderr)
-    if api.stopped or api.calls >= api.max_calls or api.remaining <= api.reserve:
+    print('GitHub collection: ' + ' '.join(
+        [f'repositories={attempted}/{len(repo_names)}'] +
+        [f'{name}={value}' for name, value in totals.items()] + [f'api_calls={api.calls}']),
+        file=sys.stderr)
+    if not _can_request(api):
         omitted = len(repo_names) - attempted
         print(f'GitHub collection partial: {_budget_reason(api)}; omitted_repositories={omitted}',
               file=sys.stderr)

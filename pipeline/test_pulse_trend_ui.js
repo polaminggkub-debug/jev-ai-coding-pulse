@@ -27,11 +27,11 @@ function checkAlerts() {
   const alerts = h.ids['trend-alerts'].querySelectorAll('.trend-alert');
   assert.equal(alerts.length, 4);
   assert.equal(alerts[0].querySelector('.trend-message').textContent,
-    '⚠️ Going sour: Sour — score +100 → −100 in the last 2 days (20 opinions)');
+    '⚠️ Going sour: Sour — score +100 → −100 in the last 24 hours (20 opinions)');
   assert.ok(alerts[0].className.includes('trend-drop'));
   assert.equal(alerts[0].querySelector('.trend-quote').href, 'https://reddit.com/Sour/2026-09-27/19');
   assert.equal(alerts[2].querySelector('.trend-message').textContent,
-    '📈 Heating up: Warm — +0 → +100 in the last 2 days (20 opinions)');
+    '📈 Heating up: Warm — +0 → +100 in the last 24 hours (20 opinions)');
   assert.ok(alerts[2].className.includes('trend-rise'));
   assert.equal(alerts[2].querySelector('.trend-quote').href, 'https://reddit.com/Warm/2026-09-27/19');
   assert.equal(alerts[3].querySelector('.trend-message').textContent, '🆕 Suddenly talked about: New');
@@ -62,7 +62,28 @@ function checkCapAndEmpty() {
     'Ranking arrows include qualifying changes beyond the five visible alerts');
   const empty = harness([], {}); empty.run(scripts);
   assert.equal(empty.ids['trend-alerts'].querySelector('.trend-empty').textContent,
-    'No big mood swings in the last 2 days.');
+    'No qualifying mood swings in available 24h or 7d data.');
 }
-checkAlerts(); checkDateAndRange(); checkCapAndEmpty();
+
+function checkSevenDayFallbackControlsAlertKind() {
+  const fallbackRows = [
+    ...comments('Sparse', 20, 'complaint', '2026-09-19'),
+    ...comments('Sparse', 13, 'praise', '2026-09-25'),
+    ...comments('Sparse', 7, 'praise', '2026-09-27')
+  ];
+  const fallback = harness(fallbackRows,
+    {days: ['2026-09-19', '2026-09-25', '2026-09-27'],
+      startDate: '2026-09-19', endDate: '2026-09-27'});
+  fallback.run(scripts);
+  const P = fallback.context.Pulse;
+  const alert = P.trendAlerts.find(item => item.subject === 'Sparse');
+  assert.equal(alert.kind, 'rise', 'The fallback seven-day score determines alert direction');
+  assert.equal(alert.period, '7d');
+  assert.equal(alert.now.opinions, 20, 'Fallback uses the full seven-day opinion count');
+  assert.match(fallback.ids['trend-alerts'].querySelector('.trend-message').textContent,
+    /Sparse \(7d\).*last 7 days \(20 opinions\)/,
+    'A fallback alert names the seven-day score and time span');
+}
+
+checkAlerts(); checkDateAndRange(); checkCapAndEmpty(); checkSevenDayFallbackControlsAlertKind();
 console.log('Pulse trend UI interaction checks passed.');

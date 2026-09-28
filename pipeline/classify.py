@@ -4,25 +4,27 @@ import json
 import time
 import datetime as dt
 from pathlib import Path
-from urllib.parse import urlsplit
 
 try:
     from . import store
     from .quality import comment_qualifies, thread_qualifies
     from .registry import mentions
-    from .source_identity import normalize_item, prefixed_id, source_name
+    from .source_ids import _pair_id
+    from .source_identity import normalize_item, source_name
     from .versions import extract_version
 except ImportError:
     import store
     from quality import comment_qualifies, thread_qualifies
     from registry import mentions
-    from source_identity import normalize_item, prefixed_id, source_name
+    from source_ids import _pair_id
+    from source_identity import normalize_item, source_name
     from versions import extract_version
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 RAW_PATH = DATA / "incoming.json"
 MAX_CALLS = 12000
+MAX_GITHUB_CALLS = 300
 VALID_LABELS = set(store.LABELS)
 # Bump this whenever Q changes: judgments are keyed by this question version.
 QUESTION_VERSION = "sentiment-v1"
@@ -42,31 +44,6 @@ SOURCE_Q = {
     **Q,
     "instructions": "`text` is a post or comment from a developer discussion. How does it judge `subject` as a tool for writing code or doing agentic coding work? Use the thread title as context when present.",
 }
-
-
-def _path_id(link, kind):
-    """Recover a stable ID from a source URL when an adapter omits it."""
-    parts = [part for part in urlsplit(link or "").path.split("/") if part]
-    try:
-        index = parts.index("comments")
-        if kind == "comment" and len(parts) > index + 3:
-            return parts[-1]
-        if len(parts) > index + 1:
-            return parts[index + 1]
-    except ValueError:
-        pass
-    return ""
-
-
-def _pair_id(kind, raw_id, link, source="reddit"):
-    item_id = str(raw_id or _path_id(link, kind) or "")
-    if not item_id:
-        return ""
-    # Reddit post IDs and comment IDs are distinct in practice; prefix posts
-    # anyway so the cache key stays unambiguous if a fixture reuses an ID.
-    if kind == "post" and not item_id.startswith("post:"):
-        item_id = f"post:{item_id}"
-    return prefixed_id(source, item_id)
 
 
 def _source_listings(raw):
@@ -216,54 +193,61 @@ def classify(raw_path=RAW_PATH, data_dir=DATA, decide_fn=None, q=None):
         return _classify(raw_path, data_dir, decide_fn, q)
 
 
+def _judge_job(key, row, active_q, decide, data_dir, prior):
+    try:
+        question = Q if active_q == QUESTION_VERSION else SOURCE_Q
+        text = row['text']
+        if row['source'] != 'reddit':
+            text = f"Thread: {row.get('thread', '')}\n{text}"
+        answer = decide({'subject': row['subject'], 'text': text}, {'s': question}).get('s', {})
+    except Exception as error:
+        print(f'Decision failed for {key}: {type(error).__name__}')
+        return None
+    if answer.get('choice') not in VALID_LABELS:
+        return None
+    now = time.time()
+    created = _created_for_new_decision(row, prior, now)
+    judgment = {'id': key[0], 'kind': row['kind'], 'subject': key[1], 'q': active_q,
+                'label': answer['choice'], 'probs': answer.get('probabilities'),
+                'created_utc': created, 'judged_at': now}
+    store.append_item(data_dir, row, fallback=now)
+    store.append_judgment(data_dir, judgment)
+    return judgment
+
+
 def _process_jobs(jobs, data_dir, decide_fn, q):
     """Judge unseen jobs and refresh metadata for already judged jobs."""
     index = store.judgment_index(data_dir)
     created_dates = {(r['id'], r['subject']): r for r in index.values()}
-    called = 0
-    new_mentions = 0
-    new_opinions = 0
+    called = github_calls = github_deferred = 0
+    new_mentions = new_opinions = 0
     decide = None
     refreshed = []
     for key, row in jobs.items():
-        active_q = q or (QUESTION_VERSION if row["source"] == "reddit"
-                         else SOURCE_QUESTION_VERSION)
+        active_q = q or (QUESTION_VERSION if row['source'] == 'reddit' else SOURCE_QUESTION_VERSION)
         judgment = index.get((*key, active_q))
         if judgment is None:
             if called >= MAX_CALLS:
                 continue
+            is_github = row['source'] == 'github'
+            if is_github and github_calls >= MAX_GITHUB_CALLS:
+                github_deferred += 1
+                continue
             if decide is None:
                 decide = _decide_function(decide_fn)
             called += 1
-            try:
-                question = Q if active_q == QUESTION_VERSION else SOURCE_Q
-                text = row["text"]
-                if row["source"] != "reddit":
-                    text = f"Thread: {row.get('thread', '')}\n{text}"
-                state = {"subject": row["subject"], "text": text}
-                answer = decide(state, {"s": question}).get("s", {})
-            except Exception as error:
-                print(f"Decision failed for {key}: {type(error).__name__}")
+            github_calls += int(is_github)
+            judgment = _judge_job(key, row, active_q, decide, data_dir, created_dates.get(key, {}))
+            if judgment is None:
                 continue
-            if answer.get("choice") not in VALID_LABELS:
-                continue
-            now = time.time()
-            prior = created_dates.get(key, {})
-            created = _created_for_new_decision(row, prior, now)
-            judgment = {"id": key[0], "kind": row['kind'], "subject": key[1], "q": active_q,
-                        "label": answer['choice'], "probs": answer.get('probabilities'),
-                        "created_utc": created, "judged_at": now}
-            # Save metadata before the irreversible append; a restart can recover it.
-            store.append_item(data_dir, row, fallback=now)
-            store.append_judgment(data_dir, judgment)
             index[(*key, active_q)] = judgment
             new_mentions += 1
-            new_opinions += answer['choice'] != 'no_opinion'
+            new_opinions += judgment['label'] != 'no_opinion'
         if row.get('created_utc') is None and row.get('parent_created_utc') is None:
             row.setdefault('judged_at', judgment.get('judged_at'))
             row.setdefault('created_utc_source', 'judged')
         refreshed.append(row)
-    return refreshed, called, new_mentions, new_opinions
+    return refreshed, called, new_mentions, new_opinions, github_calls, github_deferred
 
 
 def _classify(raw_path, data_dir, decide_fn, q):
@@ -278,7 +262,7 @@ def _classify(raw_path, data_dir, decide_fn, q):
     sources = Path(data_dir) / 'incoming-sources.json'
     if Path(raw_path).resolve() == RAW_PATH.resolve() and sources.exists():
         jobs.update(jobs_from_raw(json.loads(sources.read_text(encoding='utf-8'))))
-    refreshed, called, new_mentions, new_opinions = _process_jobs(
+    refreshed, called, new_mentions, new_opinions, github_calls, github_deferred = _process_jobs(
         jobs, data_dir, decide_fn, q)
     store.update_items(data_dir, refreshed)
     store.rebuild_daily(data_dir)
@@ -287,10 +271,13 @@ def _classify(raw_path, data_dir, decide_fn, q):
         'newOpinions': new_opinions,
         'newMentions': new_mentions,
         'calls': called,
+        'githubCalls': github_calls,
+        'githubDeferred': github_deferred,
         'completedAt': completed_at,
     })
     if called >= MAX_CALLS:
         print(f"Hard cap reached: {MAX_CALLS} new Jev calls; remaining work deferred.")
+    print(f'GitHub Jev: attempts={github_calls}/{MAX_GITHUB_CALLS} deferred={github_deferred}')
     print(f"{len(jobs)} mentions; {called} new Jev calls")
     return store.load_mentions(data_dir)
 
