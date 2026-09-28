@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 
 try:
-    from . import curator
+    from . import curator, navigation
 except ImportError:
     import curator
+    import navigation
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = Path(__file__).resolve().parent
@@ -36,10 +37,9 @@ def _page(payload, output):
 <meta name="color-scheme" content="light dark">
 <title>Worth reading today · Jev Reddit Pulse</title>
 <style>{base_css}\n{reads_css}</style></head>
-<body class="reads-page"><header class="reads-header"><div><h1>📚 Worth reading today</h1>
+<body class="reads-page">{navigation.nav("reads.html")}<header class="reads-header"><div><h1>📚 Worth reading today</h1>
 <p class="m">Developer discussions about AI coding models and tools.</p></div>
-<nav aria-label="Pulse pages"><a href="index.html">← Model sentiment</a>
-<button id="theme" type="button" aria-label="Toggle light and dark theme">Toggle theme</button></nav></header>
+<button id="theme" type="button" aria-label="Toggle light and dark theme">Toggle theme</button></header>
 <main><section aria-label="Choose a day and view">
 <div class="reads-controls"><div class="reads-day-controls" role="group" aria-label="Choose a day">
 <button id="day-prev" type="button" aria-label="Previous day">◀</button>

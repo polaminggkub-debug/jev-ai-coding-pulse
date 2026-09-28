@@ -151,9 +151,10 @@ def main() -> int:
             failures.extend(inspect_source(path, modules))
         except (SyntaxError, UnicodeError) as error:
             failures.append(f"{path.relative_to(ROOT)}: cannot inspect source ({error})")
-    page = ROOT / "pulse.html"
-    if page.exists():
-        failures.extend(page_load_failures(page, ROOT))
+    for name in ("pulse.html", "reads.html", "sources.html"):
+        page = ROOT / name
+        if page.exists():
+            failures.extend(page_load_failures(page, ROOT))
     if failures:
         print("Structure check failed:", file=sys.stderr)
         for failure in sorted(set(failures)):

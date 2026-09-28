@@ -119,9 +119,12 @@ C.bindChartPoints = function(target) {
 };
 C.render = function() {
   C.renderTime();
+  if (C.page === 'sources') {
+    C.renderSourceOverview(C.rowsForRange());
+    C.renderCommunityHeatmap(C.rowsForRange());
+    return;
+  }
   C.renderTrends();
-  if (C.renderSourceOverview) C.renderSourceOverview(C.rowsForRange());
-  if (C.renderCommunityHeatmap) C.renderCommunityHeatmap(C.rowsForRange());
   C.chartModels = C.renderRanking();
   C.renderChart(C.chartModels);
 };
@@ -133,7 +136,8 @@ C.bindResize = function() {
   });
 };
 C.init = function() {
-  C.bindTime(); C.bindSelection(); C.bindResize();
+  C.bindTime();
+  if (C.page !== 'sources') { C.bindSelection(); C.bindResize(); }
   if (C.bindSourceControls) C.bindSourceControls();
   C.$('theme').addEventListener('click', () => {
     const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' :
