@@ -127,7 +127,7 @@ C.render = function() {
     return;
   }
   C.renderTrends();
-  C.chartModels = C.renderRanking();
+  C.renderRanking();
   C.renderChart(C.chartModels);
 };
 C.bindResize = function() {

@@ -76,19 +76,19 @@ P.renderUpdate = function() {
   const start = P.meta.startDate ? P.shortDate(P.meta.startDate).replace(/ \d{4}$/, '') : 'unknown';
   target.textContent = `Updated ${P.updatedLabel(P.meta.updatedAt)} (Thai time) · next update ~${next} · this run read ${opinions} new opinions · history since ${start}`;
 };
-P.windowStart = function() {
-  if (P.rangeDays === 1) {
+P.windowStart = function(days = P.rangeDays) {
+  if (days === 1) {
     const end = P.rangeEndTimestamp();
     return end === null ? P.endDate : new Date(end - 86400000).toISOString().slice(0, 10);
   }
-  const start = P.addDays(P.endDate, -(P.rangeDays - 1));
+  const start = P.addDays(P.endDate, -(days - 1));
   return start < P.startDate ? P.startDate : start;
 };
-P.rowsForRange = function() {
-  const start = P.windowStart();
-  const end = P.rangeDays === 1 ? P.rangeEndTimestamp() : null;
+P.rowsForRange = function(days = P.rangeDays) {
+  const start = P.windowStart(days);
+  const end = days === 1 ? P.rangeEndTimestamp() : null;
   const rows = P.rows.filter(row => {
-    if (P.rangeDays === 1) {
+    if (days === 1) {
       const stamp = P.timestampOf(row);
       return end !== null && stamp !== null && stamp >= end - 86400000 && stamp <= end;
     }

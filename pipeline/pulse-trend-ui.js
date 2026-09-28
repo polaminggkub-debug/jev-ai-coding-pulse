@@ -2,7 +2,8 @@
 const U = globalThis.Pulse;
 
 U.trendName = function(alert) {
-  return alert.name || (alert.version ? `${alert.subject} · ${alert.version}` : alert.subject);
+  const name = alert.name || (alert.version ? `${alert.subject} · ${alert.version}` : alert.subject);
+  return alert.period === '7d' ? `${name} (7d)` : name;
 };
 U.trendArrow = function(subject, version) {
   const alert = (U.trendAlerts || []).find(item => item.subject === subject && item.version === version &&
@@ -13,7 +14,8 @@ U.trendArrow = function(subject, version) {
   const rising = alert.kind === 'rise';
   const arrow = U.el('span', `${rising ? '▲' : '▼'}${points}`, `trend-arrow trend-${alert.kind}`);
   const direction = rising ? 'up' : 'down';
-  arrow.setAttribute('title', `Score ${direction} ${points} points in the last 2 days`);
+  const period = alert.period === '7d' ? '7 days' : '24 hours';
+  arrow.setAttribute('title', `Score ${direction} ${points} points in the last ${period}`);
   arrow.setAttribute('aria-label', `Score ${direction} ${points} points`);
   return arrow;
 };
@@ -21,10 +23,11 @@ U.trendMessage = function(alert) {
   const name = U.trendName(alert);
   if (alert.kind === 'new') return `🆕 Suddenly talked about: ${name}`;
   const before = U.netText(alert.before.net), now = U.netText(alert.now.net);
+  const period = alert.period === '7d' ? '7 days' : '24 hours';
   if (alert.kind === 'drop') {
-    return `⚠️ Going sour: ${name} — score ${before} → ${now} in the last 2 days (${alert.now.opinions} opinions)`;
+    return `⚠️ Going sour: ${name} — score ${before} → ${now} in the last ${period} (${alert.now.opinions} opinions)`;
   }
-  return `📈 Heating up: ${name} — ${before} → ${now} in the last 2 days (${alert.now.opinions} opinions)`;
+  return `📈 Heating up: ${name} — ${before} → ${now} in the last ${period} (${alert.now.opinions} opinions)`;
 };
 U.trendQuoteNode = function(alert) {
   const row = alert.quote;
@@ -43,13 +46,15 @@ U.trendQuoteNode = function(alert) {
 U.renderTrends = function() {
   const rows = U.rowsForMain ? U.rowsForMain(U.rows) :
     U.filterSources ? U.filterSources(U.rows) : U.rows;
-  U.trendAlerts = U.trendsFor(rows, U.endDate);
+  const end = U.rangeEndTimestamp ? U.rangeEndTimestamp() : null;
+  const weekStart = U.windowStart ? U.trendTimestamp(U.windowStart(7)) : null;
+  U.trendAlerts = U.trendsFor(rows, U.endDate, end, weekStart);
   const target = U.$('trend-alerts');
   if (!target) return U.trendAlerts;
   target.replaceChildren(U.el('h2', 'Trend alerts'));
   const visible = U.trendAlerts.slice(0, 5);
   if (!visible.length) {
-    target.append(U.el('p', 'No big mood swings in the last 2 days.', 'trend-empty'));
+    target.append(U.el('p', 'No qualifying mood swings in available 24h or 7d data.', 'trend-empty'));
     return U.trendAlerts;
   }
   visible.forEach(alert => {

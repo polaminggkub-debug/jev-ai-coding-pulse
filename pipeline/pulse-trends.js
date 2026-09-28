@@ -27,23 +27,33 @@ T.trendTimestamp = function(value) {
 T.trendGroup = function(groups, subject, version) {
   const key = JSON.stringify([subject, version]);
   if (!groups.has(key)) groups.set(key, {subject, version,
-    name: version === null ? subject : `${subject} · ${version}`, now: [], before: []});
+    name: version === null ? subject : `${subject} · ${version}`,
+    day: [], beforeDay: [], week: [], beforeWeek: []});
   return groups.get(key);
 };
-T.trendGroups = function(rows, endExclusive) {
-  const groups = new Map(), nowStart = endExclusive - 2 * T.trendDay;
-  const beforeStart = endExclusive - 9 * T.trendDay;
+T.trendGroups = function(rows, end, selectedWeekStart) {
+  const groups = new Map(), dayStart = end - T.trendDay;
+  const beforeDayStart = end - 8 * T.trendDay;
+  const weekStart = selectedWeekStart;
+  const beforeWeekStart = weekStart - 7 * T.trendDay;
   (Array.isArray(rows) ? rows : []).forEach(row => {
     if (!row || (row.kind && row.kind !== 'comment')) return;
     const subject = typeof row.subject === 'string' ? row.subject.trim() : '';
-    const stamp = [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at]
+    const stamp = [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at, row.date]
       .map(T.trendTimestamp).find(value => value !== null) ?? null;
-    if (!subject || stamp === null || stamp < beforeStart || stamp >= endExclusive) return;
-    const window = stamp >= nowStart ? 'now' : 'before';
-    T.trendGroup(groups, subject, null)[window].push(row);
+    if (!subject || stamp === null || stamp < beforeWeekStart || stamp > end) return;
+    const family = T.trendGroup(groups, subject, null);
+    if (stamp >= dayStart) family.day.push(row);
+    else if (stamp >= beforeDayStart) family.beforeDay.push(row);
+    if (stamp >= weekStart) family.week.push(row);
+    else family.beforeWeek.push(row);
     const version = typeof row.version === 'string' ? row.version.trim() : '';
     if (version && version.toLowerCase() !== 'version unknown') {
-      T.trendGroup(groups, subject, version)[window].push(row);
+      const versionGroup = T.trendGroup(groups, subject, version);
+      if (stamp >= dayStart) versionGroup.day.push(row);
+      else if (stamp >= beforeDayStart) versionGroup.beforeDay.push(row);
+      if (stamp >= weekStart) versionGroup.week.push(row);
+      else versionGroup.beforeWeek.push(row);
     }
   });
   return [...groups.values()];
@@ -64,20 +74,38 @@ T.trendQuote = function(rows, label) {
     T.trendCompareText(String(a.id || ''), String(b.id || '')))[0] || null;
 };
 T.trendNameOrder = (a, b) => b.now.opinions - a.now.opinions || T.trendCompareText(a.name, b.name);
-T.trendsFor = function(rows, endDate) {
+T.trendEndTimestamp = function(rows, endDate) {
+  const midnight = T.trendTimestamp(endDate);
+  if (midnight === null) return null;
+  const cutoff = midnight + T.trendDay;
+  const latest = (Array.isArray(rows) ? rows : []).reduce((max, row) => {
+    const stamp = [row?.created_utc, row?.parent_created_utc, row?.post_created_utc, row?.judged_at, row?.date]
+      .map(T.trendTimestamp).find(value => value !== null) ?? null;
+    return stamp !== null && stamp < cutoff && (max === null || stamp > max) ? stamp : max;
+  }, null);
+  return latest === null ? cutoff - 1 : latest;
+};
+T.trendsFor = function(rows, endDate, selectedEnd, selectedWeekStart) {
   if (typeof endDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return [];
   const midnight = T.trendTimestamp(endDate);
   if (midnight === null) return [];
-  const groups = T.trendGroups(rows, midnight + T.trendDay), swings = [], newNames = [];
+  const end = selectedEnd ?? T.trendEndTimestamp(rows, endDate);
+  if (end === null) return [];
+  const weekStart = selectedWeekStart ?? midnight - 6 * T.trendDay;
+  const groups = T.trendGroups(rows, end, weekStart), swings = [], newNames = [];
   groups.forEach(group => {
-    const now = T.trendStats(group.now), before = T.trendStats(group.before);
+    const recent = T.trendStats(group.day), period = recent.opinions >= 8 ? '24h' : '7d';
+    const now = period === '24h' ? recent : T.trendStats(group.week);
+    const before = T.trendStats(period === '24h' ? group.beforeDay : group.beforeWeek);
     const delta = now.net - before.net;
-    if (now.opinions >= 15 && before.opinions >= 20 && Math.abs(delta) >= 15) {
+    const minimum = period === '24h' ? 8 : 20;
+    if (now.opinions >= minimum && before.opinions >= 20 && Math.abs(delta) >= 15) {
       const kind = delta < 0 ? 'drop' : 'rise';
-      swings.push({...group, kind, now, before, delta,
-        quote: T.trendQuote(group.now, kind === 'drop' ? 'complaint' : 'praise')});
-    } else if (now.opinions >= 15 && before.opinions < 5) {
-      newNames.push({...group, kind: 'new', now, before, delta: null, quote: null});
+      const items = period === '24h' ? group.day : group.week;
+      swings.push({...group, kind, period, now, before, delta,
+        quote: T.trendQuote(items, kind === 'drop' ? 'complaint' : 'praise')});
+    } else if (now.opinions >= minimum && before.opinions < 5) {
+      newNames.push({...group, kind: 'new', period, now, before, delta: null, quote: null});
     }
   });
   swings.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || T.trendNameOrder(a, b));

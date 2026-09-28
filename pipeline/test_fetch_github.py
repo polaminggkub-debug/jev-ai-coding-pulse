@@ -45,7 +45,7 @@ class GitHubTests(unittest.TestCase):
             calls.append((url, headers))
             if url.endswith('/rate_limit'):
                 return rate_limit(5000)
-            if '/issues/comments?' in url:
+            if urlsplit(url).path.endswith('/issues/1/comments'):
                 rows = [comment(22, 1), comment(23, 1), comment(24, 1)]
                 rows[1]['user'] = {'login': 'ci[bot]'}
                 rows[2]['created_at'] = iso_utc(NOW - 7 * 86400)
@@ -65,24 +65,26 @@ class GitHubTests(unittest.TestCase):
         self.assertIsNone(post['comments'][0]['score'])
         self.assertTrue(all(h['Authorization'] == 'Bearer fake' for _, h in calls))
 
-    def test_issue_comments_use_one_bulk_endpoint_per_repository(self):
+    def test_issue_comments_use_bounded_per_issue_endpoints(self):
         calls = []
 
         def http(url, headers=None):
             calls.append(url)
             if url.endswith('/rate_limit'):
                 return rate_limit(5000)
-            if '/issues/comments?' in url:
-                return [comment(22, 1), comment(23, 2)]
+            path = urlsplit(url).path
+            if path.endswith('/issues/1/comments'):
+                return [comment(22, 1)]
+            if path.endswith('/issues/2/comments'):
+                return [comment(23, 2)]
             return [issue(1), issue(2)]
 
         result = fetch_github(repos=['openai/codex'], token='fake', now=NOW, http_get=http)
-        bulk_calls = [url for url in calls if '/issues/comments?' in url]
-        per_issue_calls = [url for url in calls if '/issues/' in url and '/comments?' in url
-                           and '/issues/comments?' not in url]
+        per_issue_calls = [url for url in calls if urlsplit(url).path.endswith('/comments')]
 
-        self.assertEqual(len(bulk_calls), 1)
-        self.assertEqual(per_issue_calls, [])
+        self.assertEqual(len(per_issue_calls), 2)
+        self.assertTrue(all(parse_qs(urlsplit(url).query)['per_page'] == ['10']
+                            for url in per_issue_calls))
         self.assertEqual([len(post['comments']) for post in result[0]['top']], [1, 1])
 
     def test_remaining_quota_reserve_stops_later_repositories_and_keeps_prior_data(self):
@@ -92,10 +94,10 @@ class GitHubTests(unittest.TestCase):
             calls.append(url)
             if url.endswith('/rate_limit'):
                 return rate_limit(102)
-            if '/issues/comments?' in url:
-                return [comment(22 + offset, 1) for offset in range(100)]
             if '/repos/openai/codex/issues?' in url:
                 return [issue(1)]
+            if urlsplit(url).path.endswith('/issues/1/comments'):
+                return [comment(22 + offset, 1) for offset in range(100)]
             return [issue(2)]
 
         log = StringIO()
@@ -105,37 +107,57 @@ class GitHubTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0], 'https://api.github.com/rate_limit')
-        self.assertIn('repositories=1/2 api_calls=3', log.getvalue())
+        self.assertIn('repositories=1/2', log.getvalue())
+        self.assertIn('api_calls=3', log.getvalue())
         self.assertIn('partial: reserve reached; omitted_repositories=1', log.getvalue())
         self.assertEqual(len(result[0]['top']), 1)
-        self.assertEqual(len(result[0]['top'][0]['comments']), 100)
+        self.assertEqual(len(result[0]['top'][0]['comments']), 10)
         self.assertEqual(result[0]['top'][0]['comments'][0]['id'], 'comment:22')
+        comment_query = next(parse_qs(urlsplit(url).query) for url in calls
+                             if urlsplit(url).path.endswith('/issues/1/comments'))
+        self.assertEqual(comment_query['per_page'], ['10'])
         self.assertNotIn('/repos/anthropics/claude-code/issues?', '\n'.join(calls))
 
-    def test_pagination_repo_failures_and_old_parent_context(self):
+    def test_fetch_uses_five_issue_request_and_does_not_paginate(self):
         pages = []
+        issue_rows = [issue(n, age=7) for n in range(1, 7)]
+        issue_rows[4] = issue(5, age=1)
 
         def http(url, headers=None):
             if url.endswith('/rate_limit'):
                 return rate_limit(5000)
-            if '/broken/' in url:
-                raise OSError('fixture failure')
             query = parse_qs(urlsplit(url).query)
-            page = int(query['page'][0])
-            if '/issues/comments?' in url:
-                start = (page - 1) * 100 + 1
-                end = min(page * 100, 101)
-                return [comment(1000 + number, number) for number in range(start, end + 1)]
-            pages.append(page)
-            return [issue(n, age=7) for n in range(1, 101)] if page == 1 else [issue(101)]
+            if urlsplit(url).path.endswith('/issues'):
+                pages.append((query['page'][0], query['per_page'][0]))
+                return issue_rows
+            number = int(urlsplit(url).path.split('/')[-2])
+            return [comment(1000 + number, number)]
 
-        result = fetch_github(repos=['broken/repo', 'openai/codex'], token='fake', now=NOW, http_get=http)
-        self.assertEqual(pages, [1, 2])
+        result = fetch_github(repos=['openai/codex'], token='fake', now=NOW, http_get=http)
+        self.assertEqual(pages, [('1', '5')])
         self.assertEqual(len(result), 1)
-        self.assertEqual(len(result[0]['top']), 101)
+        self.assertEqual(len(result[0]['top']), 5)
         self.assertTrue(result[0]['top'][0]['context_only'])
         self.assertFalse(result[0]['top'][-1]['context_only'])
-        self.assertEqual([len(post['comments']) for post in result[0]['top']], [1] * 100 + [1])
+        self.assertEqual([len(post['comments']) for post in result[0]['top']], [1] * 5)
+
+    def test_skips_issues_without_registry_names_before_comment_requests(self):
+        calls = []
+
+        def http(url, headers=None):
+            calls.append(url)
+            if url.endswith('/rate_limit'):
+                return rate_limit(5000)
+            return [dict(issue(1), title='How do I configure a build?', body='No model mentioned')]
+
+        log = StringIO()
+        with redirect_stderr(log):
+            result = fetch_github(repos=['openai/codex'], token='fake', now=NOW, http_get=http)
+
+        self.assertEqual(result[0]['top'], [])
+        self.assertFalse(any(urlsplit(url).path.endswith('/comments') for url in calls))
+        self.assertIn('registry_matches=0', log.getvalue())
+        self.assertIn('irrelevant_skipped=1', log.getvalue())
 
     def test_seeded_repo_tools_and_config_comments(self):
         self.assertEqual(len(REPO_TOOLS), 9)
@@ -158,7 +180,7 @@ class GitHubTests(unittest.TestCase):
             calls.append(url)
             if url.endswith('/rate_limit'):
                 return rate_limit(5000)
-            if '/issues/comments?' in url:
+            if urlsplit(url).path.endswith('/issues/1/comments'):
                 raise HTTPError(url, 403, 'API rate limit exceeded', {}, BytesIO(b'{"message":"API rate limit exceeded"}'))
             return [issue(1)]
 
