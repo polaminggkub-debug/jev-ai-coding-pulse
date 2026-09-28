@@ -66,10 +66,11 @@ C.chartLegend = function() {
   return `<ul class="chart-zone-legend" aria-label="Model zones">${items}</ul>`;
 };
 C.chartTicks = function(max, left, width, top, bottom, height) {
-  const ticks = [20, 50, 100, 250, 500, 1000].filter(n => n >= 20 && n < max);
+  const minimum = C.rankingMinimum();
+  const ticks = [8, 20, 50, 100, 250, 500, 1000].filter(n => n >= minimum && n < max);
   ticks.push(max);
   return ticks.map((value, index) => {
-    const x = max === 20 ? left + width / 2 : left + Math.log(value / 20) / Math.log(max / 20) * width;
+    const x = max === minimum ? left + width / 2 : left + Math.log(value / minimum) / Math.log(max / minimum) * width;
     const label = index === ticks.length - 1 && max > 1000 ? `${Math.round(max / 1000)}k` : value;
     return `<line x1="${x}" y1="${top}" x2="${x}" y2="${bottom}" class="gridline"/><text x="${x}" y="${bottom + 18 * height / 430}" text-anchor="middle" class="tick">${label}</text>`;
   }).join('');
@@ -85,9 +86,10 @@ C.renderChart = function(models) {
   const left = width < 500 ? 42 : 64, right = width < 500 ? 14 : 28;
   const top = 52 * scale, bottom = 356 * scale, plotWidth = width - left - right;
   const midX = left + plotWidth / 2, midY = (top + bottom) / 2;
-  const max = Math.max(20, ...rankable.map(model => model.stats.opinions));
+  const minimum = C.rankingMinimum();
+  const max = Math.max(minimum, ...rankable.map(model => model.stats.opinions));
   const positions = rankable.map(model => {
-    const ratio = max === 20 ? 0.5 : Math.log(model.stats.opinions / 20) / Math.log(max / 20);
+    const ratio = max === minimum ? 0.5 : Math.log(model.stats.opinions / minimum) / Math.log(max / minimum);
     const x = left + ratio * plotWidth;
     const bound = C.scoreMode === 'fair' ? 200 : 100;
     const y = top + (bound - model.stats.net) / (2 * bound) * (bottom - top);

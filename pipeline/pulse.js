@@ -24,16 +24,28 @@ P.query = '';
 P.sourceFilter = 'all';
 P.scoreMode = 'raw';
 P.latestDate = P.meta.endDate || '';
-P.dateOf = function(row) {
+P.timestampOf = function(row) {
   for (const value of [row.created_utc, row.parent_created_utc, row.post_created_utc, row.judged_at, row.date]) {
     if (value === null || value === undefined || value === '') continue;
     const number = Number(value);
     const stamp = Number.isFinite(number) ? number * (Math.abs(number) > 1e11 ? 1 : 1000) : Date.parse(value);
     if (Number.isFinite(stamp) && Math.abs(stamp) <= 8640000000000000) {
-      return new Date(stamp).toISOString().slice(0, 10);
+      return stamp;
     }
   }
   return null;
+};
+P.dateOf = function(row) {
+  const stamp = P.timestampOf(row);
+  return stamp === null ? null : new Date(stamp).toISOString().slice(0, 10);
+};
+P.rangeEndTimestamp = function() {
+  const cutoff = Date.parse(`${P.endDate}T00:00:00Z`) + 86400000;
+  return P.rows.reduce((latest, row) => {
+    const stamp = P.timestampOf(row);
+    return stamp !== null && (P.endDate === P.latestDate || stamp < cutoff) &&
+      (latest === null || stamp > latest) ? stamp : latest;
+  }, null);
 };
 P.availableDates = [...new Set((P.meta.days || []).filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day)))].sort();
 if (!P.availableDates.length) P.availableDates = [...new Set(P.rows.map(P.dateOf).filter(Boolean))].sort();
@@ -65,12 +77,21 @@ P.renderUpdate = function() {
   target.textContent = `Updated ${P.updatedLabel(P.meta.updatedAt)} (Thai time) · next update ~${next} · this run read ${opinions} new opinions · history since ${start}`;
 };
 P.windowStart = function() {
+  if (P.rangeDays === 1) {
+    const end = P.rangeEndTimestamp();
+    return end === null ? P.endDate : new Date(end - 86400000).toISOString().slice(0, 10);
+  }
   const start = P.addDays(P.endDate, -(P.rangeDays - 1));
   return start < P.startDate ? P.startDate : start;
 };
 P.rowsForRange = function() {
   const start = P.windowStart();
+  const end = P.rangeDays === 1 ? P.rangeEndTimestamp() : null;
   const rows = P.rows.filter(row => {
+    if (P.rangeDays === 1) {
+      const stamp = P.timestampOf(row);
+      return end !== null && stamp !== null && stamp >= end - 86400000 && stamp <= end;
+    }
     const day = P.dateOf(row);
     return day && day >= start && day <= P.endDate;
   });
@@ -151,8 +172,13 @@ P.renderTime = function() {
   P.renderHistoryNote();
   const start = P.windowStart();
   P.renderUpdate();
-  P.$('covered-period').textContent = `Comments from ${P.shortDate(start)} – ${P.shortDate(P.endDate)}`;
-  P.$('range-status').textContent = `${P.rangeDays === 1 ? '1 day' : `${P.rangeDays} days`} ending ${P.shortDate(P.endDate)} (UTC)`;
+  const end = P.rangeDays === 1 ? P.rangeEndTimestamp() : null;
+  const endDay = end === null ? P.endDate : new Date(end).toISOString().slice(0, 10);
+  P.$('covered-period').textContent = `Comments from ${P.shortDate(start)} – ${P.shortDate(endDay)}`;
+  P.$('range-status').textContent = P.rangeDays === 1 ?
+    (end === null ? '24h · no dated items' : `24h ending ${new Date(end).toISOString()} (UTC)`) :
+    `${P.rangeDays} days ending ${P.shortDate(P.endDate)} (UTC)`;
+  P.$('range-opinions').textContent = `${P.stats(P.rowsForRange()).opinions.toLocaleString('en-US')} opinions in this range`;
   [[1, 'range-today'], [7, 'range-7'], [30, 'range-30']].forEach(([days, id]) =>
     P.$(id).setAttribute('aria-pressed', String(days === P.rangeDays)));
   const select = P.$('date-end');

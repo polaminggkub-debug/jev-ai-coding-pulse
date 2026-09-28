@@ -6,7 +6,8 @@ R.modelsFor = function(rows) {
     return {subject, items, zone: R.zoneFor(subject, items), stats: R.stats(items)};
   });
 };
-R.rankable = model => model.stats.opinions >= 20 && (R.scoreMode !== 'fair' || model.fairNet !== null);
+R.rankingMinimum = () => R.rangeDays === 1 ? 8 : 20;
+R.rankable = model => model.stats.opinions >= R.rankingMinimum() && (R.scoreMode !== 'fair' || model.fairNet !== null);
 R.compareModels = (a, b) => b.stats.net - a.stats.net ||
   b.stats.opinions - a.stats.opinions || a.subject.localeCompare(b.subject);
 R.shares = function(stats) {
@@ -184,7 +185,7 @@ R.renderZones = function(models) {
     if (low.length) {
       const group = R.el('details', undefined, 'low-data');
       group.open = R.$('expand').checked || Boolean(R.query && low.some(R.matchVersion)) || Boolean(R.selected);
-      group.append(R.el('summary', `Not enough data (${low.length})`));
+      group.append(R.el('summary', `Not enough data yet (${low.length})`));
       low.forEach(model => group.append(R.rankRow(model, R.matchVersion(model))));
       section.append(group);
     }
