@@ -134,9 +134,10 @@ def _scripts():
 
 TIME_CONTROLS = '''<section aria-label="Choose a time range"><h2>Time range</h2>
 <div id="time-range" role="group" aria-label="Time range">
-<button id="range-today" type="button" aria-pressed="false">Today</button>
+<button id="range-today" type="button" aria-pressed="false">24h</button>
 <button id="range-7" type="button" aria-pressed="true">7 days</button>
 <button id="range-30" type="button" aria-pressed="false">30 days</button>
+<span id="range-opinions" class="m" role="status"></span>
 <button id="date-prev" type="button" aria-label="Earlier end date">◀</button>
 <label for="date-end">End date</label><select id="date-end" aria-label="End date"></select>
 <button id="date-next" type="button" aria-label="Later end date">▶</button>
@@ -171,7 +172,7 @@ def _page(rows, meta, output):
 <section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
 <section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
 <p class="m">Score counts Reddit, HN, Dev.to, Lobsters. GitHub issues are shown under Sources.</p>
-<p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
+<p class="m">Rankable families need 8 opinions for 24h, or 20 for 7/30 days. Reddit sentiment is not a benchmark.</p>
 {TIME_CONTROLS}
 <section aria-label="Buzz versus love"><h2>Buzz vs love</h2><div id="chart"></div></section>
 <section aria-label="Score method"><h2>Score method</h2>
