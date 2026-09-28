@@ -64,12 +64,17 @@ if (Community) {
   Community.renderCommunityHeatmap = function(rows) {
     const target = Community.$('community-heatmap');
     if (!target) return;
-    const communities = Community.communityGroups(rows).filter(group => group.stats.opinions >= 30)
+    const groups = Community.communityGroups(rows);
+    const githubRows = rows.filter(row => Community.sourceOf(row) === 'github');
+    const communities = groups.filter(group => Community.sourceOf(group.items[0]) !== 'github' && group.stats.opinions >= 30)
       .sort((a, b) => b.stats.opinions - a.stats.opinions || a.label.localeCompare(b.label));
+    if (githubRows.length) communities.push({key: 'github\u0000all',
+      label: 'GitHub — bug reports — not counted in main score', items: githubRows,
+      stats: Community.stats(githubRows)});
     const families = Community.familiesFor(rows).map(subject => ({subject, count: Community.stats(Community.rowsFor(rows, subject)).opinions}))
       .filter(item => item.count >= 20).sort((a, b) => a.subject.localeCompare(b.subject));
     target.replaceChildren();
-    if (!communities.length || !families.length) {
+    if (!communities.length) {
       target.append(Community.el('p', 'Need a community with 30 opinions and a family with 20 in this range.', 'muted'));
       return;
     }

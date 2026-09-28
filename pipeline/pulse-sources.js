@@ -50,12 +50,11 @@ if (S) {
   };
   S.bindSourceControls = function() {
     const source = S.$('source-filter'), mode = S.$('score-mode');
-    if (!source || !mode) return;
-    source.addEventListener('change', () => {
+    if (source) source.addEventListener('change', () => {
       S.sourceFilter = S.sourceNames[source.value] ? source.value : 'all';
       S.clearFilters(); S.render();
     });
-    mode.addEventListener('change', () => {
+    if (mode) mode.addEventListener('change', () => {
       S.scoreMode = mode.value === 'fair' ? 'fair' : 'raw'; S.render();
     });
   };

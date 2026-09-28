@@ -41,7 +41,9 @@ U.trendQuoteNode = function(alert) {
   return line;
 };
 U.renderTrends = function() {
-  U.trendAlerts = U.trendsFor(U.filterSources ? U.filterSources(U.rows) : U.rows, U.endDate);
+  const rows = U.rowsForMain ? U.rowsForMain(U.rows) :
+    U.filterSources ? U.filterSources(U.rows) : U.rows;
+  U.trendAlerts = U.trendsFor(rows, U.endDate);
   const target = U.$('trend-alerts');
   if (!target) return U.trendAlerts;
   target.replaceChildren(U.el('h2', 'Trend alerts'));

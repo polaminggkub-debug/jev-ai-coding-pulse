@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 
 try:
-    from . import store, update_info, reads
+    from . import store, update_info, reads, navigation
     from .source_identity import normalize_item, normalize_judgment
     from .versions import extract_version
 except ImportError:
     import store
     import reads
+    import navigation
     import update_info
     from source_identity import normalize_item, normalize_judgment
     from versions import extract_version
@@ -131,20 +132,7 @@ def _scripts():
                      for name in SCRIPTS)
 
 
-def _page(rows, meta, output):
-    css = '\n'.join((ASSETS / name).read_text(encoding='utf-8')
-                    for name in ('pulse.css', 'pulse-sources.css'))
-    body = f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Jev Reddit Pulse</title><style>{css}</style></head>
-<body><header><h1>Jev Reddit Pulse</h1><a href="reads.html">📚 Worth reading today</a><button id="theme" type="button">Toggle light/dark</button></header>
-<p id="update-info" class="m" role="status"></p>
-<p id="covered-period" class="m" role="status"></p>
-<section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
-<section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
-<p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
-<section aria-label="Choose a time range"><h2>Time range</h2>
+TIME_CONTROLS = '''<section aria-label="Choose a time range"><h2>Time range</h2>
 <div id="time-range" role="group" aria-label="Time range">
 <button id="range-today" type="button" aria-pressed="false">Today</button>
 <button id="range-7" type="button" aria-pressed="true">7 days</button>
@@ -154,16 +142,37 @@ def _page(rows, meta, output):
 <button id="date-next" type="button" aria-label="Later end date">▶</button>
 <button id="back-latest" type="button">Back to latest</button></div>
 <p id="range-status" class="m" role="status"></p><p id="history-note" class="m" role="status" hidden></p></section>
-<section aria-label="Data sources"><h2>Where the data comes from</h2>
+'''
+
+SOURCE_SECTIONS = '''<section aria-label="Data sources"><h2>Where the data comes from</h2>
 <label for="source-filter">Source filter</label><select id="source-filter" aria-label="Source filter">
 <option value="all">All sources</option><option value="reddit">Reddit</option><option value="hn">Hacker News</option>
 <option value="github">GitHub</option><option value="bluesky">Bluesky</option>
 <option value="devto">Dev.to</option><option value="lobsters">Lobsters</option></select>
+<p class="m">The source filter changes the charts on this page only. GitHub issues are bug reports — not counted in main score.</p>
 <div id="source-chart" aria-label="Opinions by source"></div>
 <h3>Top Reddit communities</h3><div id="reddit-communities"></div></section>
 <section aria-label="Community tastes"><h2>Community tastes</h2>
-<p class="m">Rows need 30 opinions; family columns need 20. Each cell shows its score and how it differs from that community’s average.</p>
+<p class="m">Community rows need 30 opinions; the GitHub bug-report row is always shown when present. Family columns need 20. Each cell shows its score and how it differs from that community’s average.</p>
 <div id="community-heatmap"></div></section>
+'''
+
+
+def _page(rows, meta, output):
+    css = '\n'.join((ASSETS / name).read_text(encoding='utf-8')
+                    for name in ('pulse.css', 'pulse-sources.css'))
+    body = f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jev Reddit Pulse</title><style>{css}</style></head>
+<body>{navigation.nav("index.html")}<header><h1>Jev Reddit Pulse</h1><button id="theme" type="button">Toggle light/dark</button></header>
+<p id="update-info" class="m" role="status"></p>
+<p id="covered-period" class="m" role="status"></p>
+<section id="trend-alerts" aria-label="Trend alerts"><h2>Trend alerts</h2></section>
+<section id="use-today" aria-label="Use today"><h2>Use today</h2></section>
+<p class="m">Score counts Reddit, HN, Dev.to, Lobsters. GitHub issues are shown under Sources.</p>
+<p class="m">Rankable families need 20 opinions. Reddit sentiment is not a benchmark.</p>
+{TIME_CONTROLS}
 <section aria-label="Buzz versus love"><h2>Buzz vs love</h2><div id="chart"></div></section>
 <section aria-label="Score method"><h2>Score method</h2>
 <label for="score-mode">Ranking and chart score</label><select id="score-mode" aria-label="Ranking and chart score">
@@ -182,6 +191,26 @@ def _page(rows, meta, output):
     Path(output).write_text(body, encoding='utf-8')
 
 
+def _sources_page(rows, meta, output):
+    css = '\n'.join((ASSETS / name).read_text(encoding='utf-8')
+                    for name in ('pulse.css', 'pulse-sources.css'))
+    body = f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sources &amp; communities · Jev Reddit Pulse</title><style>{css}</style></head>
+<body>{navigation.nav("sources.html")}<header><h1>Sources &amp; communities</h1>
+<button id="theme" type="button">Toggle light/dark</button></header>
+<p id="update-info" class="m" role="status"></p>
+<p id="covered-period" class="m" role="status"></p>
+<main>{TIME_CONTROLS}{SOURCE_SECTIONS}</main>
+{_embedded('pulse-logos', _logos())}
+{_embedded('pulse-meta', dict(meta, page='sources'))}
+{_embedded('pulse-data', rows)}
+{_scripts()}
+</body></html>'''
+    Path(output).write_text(body, encoding='utf-8')
+
+
 def build(source=None, output=ROOT / 'pulse.html'):
     """Build using only daily history and items, or a legacy JSON fixture."""
     source = ROOT / 'data' if source is None else Path(source)
@@ -191,6 +220,7 @@ def build(source=None, output=ROOT / 'pulse.html'):
         rows, days = load_mentions(source), []
     meta = update_info.metadata(rows, days, source, ROOT / '.github/workflows/pulse.yml')
     _page(rows, meta, output)
+    _sources_page(rows, meta, Path(output).with_name("sources.html"))
     return len(rows)
 
 

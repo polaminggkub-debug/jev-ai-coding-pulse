@@ -160,5 +160,10 @@ attempts before calls and limits itself to 60 calls per UTC day.
 
 Run `python3 pipeline/curator.py` after classification to curate new threads;
 `python3 pipeline/build.py` builds both pages offline from saved records. The
-Pages workflow stages `pulse.html` as `index.html` and also stages `reads.html`.
+Pages workflow stages `pulse.html` as `index.html`, plus `reads.html` and
+`sources.html`. All pages share navigation. Sources contains the source chart and
+community heatmap; GitHub issues remain visible there but are excluded from main
+rankings, recommendations, alerts, and buzz scores. Main scores count Reddit, HN,
+Dev.to, and Lobsters. For a code-only publication, manually run the Pages workflow
+with `refresh_data` disabled to build from saved data without fetching or classifying.
 Version details retain raw sentiment scores when family ranking uses Fair scores.

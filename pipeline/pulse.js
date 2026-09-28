@@ -10,6 +10,13 @@ P.el = (tag, value, cls) => {
 P.rows = JSON.parse(P.$('pulse-data').textContent || '[]');
 P.meta = JSON.parse(P.$('pulse-meta')?.textContent || '{}');
 P.logos = JSON.parse(P.$('pulse-logos')?.textContent || '{}');
+P.page = P.meta.page === 'sources' ? 'sources' : 'rankings';
+P.mainSourceIds = ['reddit', 'hn', 'devto', 'lobsters'];
+P.sourceId = row => String(row?.source || 'reddit').toLowerCase();
+P.rowsForMain = function(rows) {
+  return rows.filter(row => P.mainSourceIds.includes(P.sourceId(row)) &&
+    (P.sourceFilter === 'all' || P.sourceId(row) === P.sourceFilter));
+};
 P.zones = {us: '🇺🇸 US frontier', tool: '🛠 Coding tools', open: '🇨🇳 China + open'};
 P.rangeDays = 7;
 P.selected = null;
@@ -63,12 +70,13 @@ P.windowStart = function() {
 };
 P.rowsForRange = function() {
   const start = P.windowStart();
-  return P.rows.filter(row => {
+  const rows = P.rows.filter(row => {
     const day = P.dateOf(row);
-    const source = row.source || 'reddit';
-    return day && day >= start && day <= P.endDate &&
-      (P.sourceFilter === 'all' || source === P.sourceFilter);
+    return day && day >= start && day <= P.endDate;
   });
+  if (P.page === 'sources') return rows.filter(row =>
+    P.sourceFilter === 'all' || P.sourceId(row) === P.sourceFilter);
+  return P.rowsForMain(rows);
 };
 P.stats = function(rows) {
   const praise = rows.filter(row => row.label === 'praise').length;
